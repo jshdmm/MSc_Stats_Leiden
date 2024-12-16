@@ -1,0 +1,130 @@
+---
+title: "Statistical learning assignment 10"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+# Load necessary libraries
+library(caret)
+library(gbm)
+
+modelLookup('gbm')
+
+# Load the dataset
+qsar <- readRDS("qsar.Rda")
+
+# Check the structure of the dataset to understand its format
+str(qsar)
+```
+# Question a
+```{r, echo = TRUE}
+# Define the training set proportion
+set.seed(4036018)
+train <- sample(1:nrow(qsar), size = 700)
+test <- which(!(1:nrow(qsar) %in% train))
+```
+
+```{r, echo = TRUE}
+# Define the parameter grid
+grid <- expand.grid(shrinkage = c(0.1, 0.01, 0.001),
+                    n.trees = c(10, 100, 1000, 2000, 2500),
+                    interaction.depth = 1:4,
+                    n.minobsinnode = 10)
+```
+
+```{r, include = FALSE}
+#Check whether both classes are similary frequent between train and test sets
+prop.table(table(qsar$class))
+prop.table(table(qsar[train, "class"]))
+prop.table(table(qsar[test, "class"]))
+```
+
+
+```{r, include = FALSE}
+# Define train control
+trControl <- trainControl(method = "cv", number = 10, verboseIter = TRUE)
+
+# Train the model using caret's train function
+set.seed(123)
+gbm_model <- train(class ~ ., data = qsar[train,], method = "gbm",
+                   distribution = "bernoulli", tuneGrid = grid, trControl = trControl)
+```
+
+
+# Question b
+
+```{r, echo = FALSE}
+# Print the model summary
+print(gbm_model)
+
+# Visualize the training results
+plot(gbm_model)
+
+```
+
+# Question c
+
+Generally, models with a higher shrinkage (0.1) reach higher accuracy sooner, while those with lower shrinkage (0.001) take longer to converge, requiring more iterations. Accuracy improves as the number of trees increases, but this improvement plateaus after a certain number of trees (around 1000-2000 for lower shrinkage rates and fewer iterations for higher rates). Adding more trees enhances model performance, but beyond a certain point, it may not add substantial value and could risk overfitting.Models with higher interaction depth (3 and 4) generally show higher accuracy compared to those with lower depth (1 and 2). This indicates the model's ability to capture more complex relationships. Higher interaction depth can improve model accuracy by accounting for more intricate interactions among features, but deeper models may also risk overfitting. Interestingly, the model with a rather high shrinkage parameter (0.1) converges very quickly and yields by far the highest accuracy, which is a bit surprising since usually low shrinkage parameter yield to a more fine-tuned model and possibly higher accuracy over many iterations.
+
+
+# Question d
+As a higher interaction depth, i.e. allowing more branches and terminal nodes in the seperate trees used to fit the model, yields by far the best accuracy, this suggests that there might be a lot of complex interactive relationships between the variables in the data in order to classify ready or not-ready biodegradable molecules.
+
+
+# Question e
+
+```{r, echo = TRUE}
+# Get the best tuning parameters
+bestTune <- gbm_model$bestTune
+
+# setup data
+gbm_dat <- qsar
+gbm_dat$class <- as.numeric(gbm_dat$class) - 1
+
+# Refit the model
+set.seed(4036018)
+best_gbm <- gbm(class ~ ., data = gbm_dat[train, ], 
+                distribution = "bernoulli",
+                n.trees = bestTune$n.trees,
+                interaction.depth = bestTune$interaction.depth,
+                shrinkage = bestTune$shrinkage,
+                n.minobsinnode = bestTune$n.minobsinnode)
+
+```
+
+
+# Question f
+
+```{r, include = FALSE}
+# Make predictions on the test data
+gbm_dat <- qsar
+gbm_dat$class <- as.numeric(gbm_dat$class) - 1
+
+pred_probs <- predict(best_gbm, newdata = gbm_dat[test, ], n.trees = bestTune$n.trees, type = "response")
+pred_class <- ifelse(pred_probs > 0.5, 1, 0)
+
+# Evaluate accuracy
+confusion_matrix <- table(pred_class, gbm_dat[test, ]$class)
+
+# Compute misclassification rate
+misclass_rate <- 1 - sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+# Compute Brier score
+brier_score <- mean((pred_probs - gbm_dat[test, ]$class) ^ 2)
+
+cat("Misclassification Rate:", misclass_rate, "\n")
+cat("Brier Score:", brier_score, "\n")
+```
+
+### MCR from previous exercise
+CART      CART_pruned ctree   bag       rf        boosting
+0.1690141 0.1802817 0.1718310 0.1211268 0.1154930 0.1436620
+
+
+As we can see from the results the boosted ensemble performs better than the single tree, the pruned single decision tree. Both the bagged and random forest ensemble and the gradient-boosted ensemble with default settings perform show higher accuracy (lower MCR).

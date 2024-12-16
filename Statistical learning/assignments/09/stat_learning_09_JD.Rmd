@@ -1,0 +1,83 @@
+---
+title: "stat_learning_assignment_09"
+author: "jshdmm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+library(mgcv)
+library(dplyr)
+```
+
+```{r, include = FALSE}
+
+```
+
+```{r, include = FALSE}
+#load data
+bike_dat <- readRDS("bike_dat.Rdata")
+```
+
+## Question a
+```{r}
+
+set.seed(4036018)
+
+# Define indices for test data - sampling 200 observations for testing
+test_indices <- sample(nrow(bike_dat), 200)
+test_data <- bike_dat[test_indices, ]
+train_data <- bike_dat[-test_indices, ]
+
+# Define and fit the GAM model, fit cubic spines for continuous variables
+gam_model <- gam(dep_sev_fu ~ s(Age, bs = "cr", k = 9) +
+                   s(LCI_max, bs = "cr", k = 9) +
+                   s(prec, bs = "cr", k = 9) +
+                   bridge +
+                   month +
+                   Day +
+                   snow +
+                   rain +
+                   s(Date, bs = "re"),
+                 data = train_data, method = "REML")
+
+```
+
+## Question b
+
+```{r, echo = FALSE}
+# Interpret
+summary(gam_model)
+anova(gam_model)
+
+# Visualize the fitted splines if necessary
+plot(gam_model, residuals = TRUE, col = "blue", cex = .5)
+```
+
+As one can infer from the coefficients July is the busiest month (\( ß_{July} = 661.64\)) and Wednesday was the busiest weekday (\( ß_{Wednesday} = 721.81\)). In our model snow does not significantly influence bike counts (p = 0.07425). However, this still shows a trend and \( ß_{Snow} = -1188.30\) suggests a strong negative impact of snowing days on bicycle counts with some statistical uncertainty. Rain on the other hand does negatively influence the response ( ß(rain) = -531.56, p < .001). The coefficient for snowing days is stronger and therefore one can expect snow days to more heavily influence the decrease in cycling both compared to dry and rain days, with some statistical uncertainty. 
+
+Both lowest and highest temperature are statistically significant (both p < 0.05). Precipitation seems to have a very linear negative effect on the counts both by visual inspection and through the edf value of 1.004. The highest temperature peaks have a strongly non-linear positive effect on the counts (edf = 5.028), and lowest temperature has a weaker non-linear effect on counts (edf = 3.331). 
+
+When looking at the plot of the random intercept one can see that the middle range of the data is quite normally distributed. When looking at the S-shape of the plot however, this indicates heavy tails of the distribution and more extreme values on the outer ends of the distribution and deviations from normality. So there might be times in the year that have a bigger impact on counts than the rest of the year.
+
+
+## Question c
+
+The MSE on the test data is 607821. The variance of the counts in the test data is a lot higher (3340766), suggesting a good fit of the fitted GAM model.
+```{r, echo = FALSE}
+# Evaluate the model using the test set
+predictions <- predict(gam_model, newdata = test_data)
+actuals <- test_data$counts
+mse <- mean((predictions - actuals)^2)
+print(paste("Mean Squared Error on Test Set:", mse))
+
+
+var_counts <- var(actuals)
+# compare against variance of the response
+print(paste("Variance of the counts in the test data:", var_counts))
+```
+

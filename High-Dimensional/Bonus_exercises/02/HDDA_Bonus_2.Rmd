@@ -1,0 +1,88 @@
+---
+title: "HDDA_Bonus_Ex2"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("assignment2_grp28.RData")
+```
+
+```{r}
+B = 28
+A = 1
+p = dim(X)[2]
+n = dim(X)[1]
+
+ß0 = rep(0, p)
+
+ß0[(n-B-1):p] <- 1
+
+# fit generalized ridge estimator
+rho = 1/(41 + B)
+rho_mat = matrix(rho, nrow = p, ncol = p)
+
+delta = (1-rho) * diag(p) + rho_mat
+```
+
+```{r}
+# Get ridge regression estimator
+
+# W is a identiy matrix
+genridge = function(X, Y, delta, ß0) {
+  solve(t(X) %*% X + delta) %*% (t(X) %*% Y + delta %*% ß0)
+}
+
+
+ßr_hat = genridge(X, Y, delta, ß0)
+
+ßr_hat
+```
+
+```{r}
+# get error variance
+errorvar = 1/n * sum(Y - X %*% ßr_hat)^2
+answer1 = errorvar
+```
+
+
+```{r}
+# replace delta with lambdadelta and get MSE
+
+lambda = seq(from = 10, to = 200, by = 10)
+
+# true betas equal the 0 vector 
+ß = rep(0, p)
+
+# MSE = variance + biased^2
+
+# expected value of the estimates
+E_ßr = function(X, delta, ß, ß0) {
+  solve(t(X) %*% X + delta) %*% (t(X) %*% X %*% ß + delta %*% ß0)
+}
+
+# variance of the estimates
+ßr_var = function(errorvar, X, delta, ß0) {
+  errorvar*(solve(t(X) %*% X + delta)) %*% t(X) %*% X %*% solve((t(X) %*% X + delta))
+}
+
+
+# get MSE
+MSE = numeric(length(lambda))
+
+for (i in 1:length(lambda)){
+
+  MSE[i] = tr(ßr_var(errorvar = 1, X = X, delta = lambda[i] * delta, ß0 = ß0)) + t(E_ßr(X = X, delta = lambda[i] * delta, ß = ß, ß0 = ß0) - ß) %*% (E_ßr(X = X, delta = lambda[i] * delta, ß = ß, ß0 = ß0) - ß)
+}
+
+
+
+answer2 = lambda[which(MSE == min(MSE))]
+```
+
+

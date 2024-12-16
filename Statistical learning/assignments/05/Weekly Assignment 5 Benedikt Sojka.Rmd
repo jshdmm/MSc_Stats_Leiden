@@ -1,0 +1,89 @@
+---
+title: "Weekly Assignment 5"
+author: "Benedikt Sojka"
+date: "2024-03-12"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+train <- readRDS("masq_train.Rda")
+test <- readRDS("masq_test.Rda")
+```
+
+## (a) Inspect multicollinearity between the numeric MASQ items. What do you expect about relative per- formance of lasso, ridge and elastic net regression?
+
+```{r}
+colnames(train)
+MASQ = train[, 12:100]
+hist(cor(MASQ))
+```
+
+The pairwise correlations follow a normal distribution around 0.3. All 3 techniques might be useful to handle this issue. Elastic net might be the best choice as it combines the benefits of lasso and ridge. A real conclusion cannot be drawn without further investigation of the methods performances. 
+
+## (b) Pick three candidate procedures from ridge, elastic net, lasso, relaxed lasso.
+
+I'll compare the three methods 'lasso', 'ridge', and 'elastic net with an alpha of 0.5.
+
+## (c) Select the most accurate model through 10-fold cross-validation on the training set.
+
+```{r}
+library(glmnet)
+
+x = model.matrix(D_DEPDYS ~ ., data = train)
+x_test = model.matrix(D_DEPDYS ~ ., data = test)
+y = train$D_DEPDYS
+
+lasso = cv.glmnet(x, y, alpha = 1); lasso
+ridge = cv.glmnet(x, y, alpha = 0); ridge
+elastic = cv.glmnet(x, y, alpha = 0.5); elastic
+
+PRE_L = predict(lasso, s = "lambda.min", newx = x_test)
+PRE_R = predict(ridge, s = "lambda.min", newx = x_test)
+PRE_E = predict(elastic, s = "lambda.min", newx = x_test)
+
+MSE_L = mean((PRE_L - test$D_DEPDYS)^2)
+MSE_R = mean((PRE_R - test$D_DEPDYS)^2)
+MSE_E = mean((PRE_E - test$D_DEPDYS)^2)
+
+MSE_MAX = var(test$D_DEPDYS)
+
+ACC_L = 1 - MSE_L/MSE_MAX; ACC_L
+ACC_R = 1 - MSE_R/MSE_MAX; ACC_R
+ACC_E = 1 - MSE_E/MSE_MAX; ACC_E
+```
+
+We see that lasso actually performs best among the 3 methods
+with an cross-validated R2 of 0.3344316.
+
+## (d) Compute the misclassification rate (MCR) on the test set.
+
+```{r}
+preds_L_1se = predict(lasso, newx = x[x_test, ], type = "response")
+preds_L_min = predict(lasso, newx = x[x_test, ], type = "response",
+                      s = "lambda.min")
+                                                                                            
+tab_L_1se = prop.table(table(preds_L_1se > .5, y[x_test]))
+tab_L_min = prop.table(table(preds_L_min > .5, y[x_test])) 
+tab_L_1se; tab_L_min
+sum(diag(tab_L_1se)); sum(diag(tab_L_min))
+```
+
+The MCR is slightly higher for the lambda.min criteria
+
+## (e) Use the coef method to extract the selected variables and their coefficients from the best-performing model. 
+
+```{r}
+L_coefs = coef(lasso, s = "lambda.min")
+L_coefs[L_coefs[,1] != 0,]
+
+Anhedonic_Depression = c(1, 14, 18, 21, 23, 26, 27, 30, 33, 35, 36, 39, 40, 44, 49, 53, 58, 66, 72, 78, 86, 89)
+Anxious_Arousal = c(3, 19, 25, 45, 48, 52, 55, 57, 61, 67, 69, 73, 75, 79, 85, 87, 88)
+General_Distress_Depression = c(6, 8, 10, 13, 16, 22, 24, 42, 47, 56, 64, 74)
+General_Distress_Anxiety = c(2, 9, 12, 15, 20, 59, 63, 65, 77, 81, 82)
+General_Distress_Mixed = c(4, 5, 17, 29, 31, 34, 37, 50, 51, 70, 76, 80, 83, 84, 90)
+```
+

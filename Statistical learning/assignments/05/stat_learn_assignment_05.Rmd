@@ -1,0 +1,96 @@
+---
+title: "Statistical Learning Weekly Assigment 05"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+train <- readRDS("masq_train.Rda")
+test <- readRDS("masq_test.Rda")
+```
+
+## a) Inspect multicollinearity between the numeric MASQ items. What do you expect about relative performance of lasso, ridge and elastic net regression?
+
+```{r}
+
+# select MASQ columns
+MASQ = train[, 12:100]
+
+# inspect multicollinearity
+hist(cor(MASQ))
+```
+
+The pairwise correlations / the correlation matrix follow a normal distribution with a mean around 0.3. There is a slight peak at 1, because of the diagonal entries of the matrix. All 3 techniques might be a feasible solution. Lasso might be an option, since it could remove redundant variables. Elastic net might be the best choice as it combines the benefits of lasso and ridge.
+
+
+## (b) Pick three candidate procedures from ridge, elastic net, lasso, relaxed lasso.
+
+I will choose lasso, ridge and elastic net with an alpha of 0.5.
+
+## (c) Use library glmnet to fit the models, and select the most accurate model through 10-fold cross-validation on the training set.
+
+```{r}
+library(glmnet)
+
+x = model.matrix(D_DEPDYS ~ ., data = train)
+x_test = model.matrix(D_DEPDYS ~ ., data = test)
+y = train$D_DEPDYS
+
+# setup
+lasso = cv.glmnet(x, y, alpha = 1); lasso
+ridge = cv.glmnet(x, y, alpha = 0); ridge
+elastic = cv.glmnet(x, y, alpha = 0.5); elastic
+
+# predict models
+predict_L = predict(lasso, s = "lambda.min", newx = x_test)
+predict_R = predict(ridge, s = "lambda.min", newx = x_test)
+predict_E = predict(elastic, s = "lambda.min", newx = x_test)
+
+# get mean squared errors
+MSE_L = mean((predict_L - test$D_DEPDYS)^2)
+MSE_R = mean((predict_R - test$D_DEPDYS)^2)
+MSE_E = mean((predict_E - test$D_DEPDYS)^2)
+
+# benchmark
+MSE_MAX = var(test$D_DEPDYS)
+
+# cross-validated R2
+CVR2_L = 1 - MSE_L/MSE_MAX; CVR2_L
+CVR2_R = 1 - MSE_R/MSE_MAX; CVR2_R
+CVR2_E = 1 - MSE_E/MSE_MAX; CVR2_E
+```
+
+Lasso shows the best performance with a cross-validated R2 of 0.3337474.
+
+## (d) Compute the misclassification rate (MCR) on the test set.
+
+```{r}
+preds_L_1se = predict(lasso, newx = x[x_test, ], type = "response")
+preds_L_min = predict(lasso, newx = x[x_test, ], type = "response",
+                      s = "lambda.min")
+                                                                                            
+tab_L_1se = prop.table(table(preds_L_1se > .5, y[x_test]))
+tab_L_min = prop.table(table(preds_L_min > .5, y[x_test])) 
+tab_L_1se; tab_L_min
+sum(diag(tab_L_1se)); sum(diag(tab_L_min))
+```
+
+For the se1_lambda criteria the MCR is a little higher.
+
+## (e) Use the coef method to extract the selected variables and their coefficients from the best-performing model. 
+
+```{r}
+L_coefs = coef(lasso, s = "lambda.min")
+L_coefs[L_coefs[,1] != 0,]
+
+Anhedonic_Depression = c(1, 14, 18, 21, 23, 26, 27, 30, 33, 35, 36, 39, 40, 44, 49, 53, 58, 66, 72, 78, 86, 89)
+Anxious_Arousal = c(3, 19, 25, 45, 48, 52, 55, 57, 61, 67, 69, 73, 75, 79, 85, 87, 88)
+General_Distress_Depression = c(6, 8, 10, 13, 16, 22, 24, 42, 47, 56, 64, 74)
+General_Distress_Anxiety = c(2, 9, 12, 15, 20, 59, 63, 65, 77, 81, 82)
+General_Distress_Mixed = c(4, 5, 17, 29, 31, 34, 37, 50, 51, 70, 76, 80, 83, 84, 90)
+```

@@ -1,0 +1,173 @@
+---
+title: "stat_learning_assignment_11_JD"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+#load data
+library(MASS)
+library(e1071)
+library(ggplot2)
+data(Boston)
+```
+
+# Question a)
+
+```{r, include = FALSE}
+# training and test data
+set.seed(4036018)
+test <- sample(1:nrow(Boston), size = 100)
+train <- which(!(1:nrow(Boston)) %in% test)
+```
+
+```{r, echo = FALSE}
+# Initial parameter tuning
+cost <- c(.001, .01, .1, 1, 10)
+epsilon <- c(.001, .01, .1, 1)
+tune_out <- tune(svm, medv ~ ., data = Boston[train, ], kernel = "linear",
+                 ranges = list(cost = cost, epsilon = epsilon))
+
+# Visualize and inspect the tuning result
+perf <- tune_out$performances
+perf$cost <- factor(perf$cost)
+ggplot(perf) + geom_line(aes(epsilon, error, group=cost, color=cost))
+
+tune_out$best.parameters
+
+```
+Best tuning values after grid search are cost = 1 and epsilon = 0.1.
+
+
+
+```{r, echo = FALSE}
+# check finer grid model for better performance
+set.seed(4036018)
+
+cost <- c(0.8, 0.9 , 0.95, 1, 1.05, 1.10, 1.2)
+epsilon <- c(.01, .05, .1, 1.5)
+tune_out <- tune(svm, medv ~ ., data = Boston[train, ], kernel = "linear",
+ranges = list(cost = cost, epsilon = epsilon))
+perf <- tune_out$performances
+perf$cost <- factor(perf$cost)
+ggplot(perf) + geom_line(aes(epsilon, error, group=cost, color=cost))
+tune_out$best.parameters
+
+```
+Also after trying finer values for epsilon and c (cost), cost = 1 and epsilon = 0.1 yield the best results (lowest CV error in training data). One can see that we got a rather convex curve since the CV error reaches a minimum and then increases again. The original was fine enough, since we reached the same optimal values for a much finer grid.
+
+
+```{r, echo = FALSE}
+# fit SVM model
+best_parameters <- tune_out$best.parameters
+
+# Fit the final model
+final_model <- svm(medv ~ ., data = Boston[train, ], kernel = "linear",
+                   cost = best_parameters$cost, epsilon = best_parameters$epsilon)
+
+# Evaluate model on test set
+predictions <- predict(final_model, newdata = Boston[test, ])
+mse <- mean((Boston[test, "medv"] - predictions)^2)
+mae <- mean(abs(Boston[test, "medv"] - predictions))
+
+# Print MSE and MAE
+print(paste("MSE:", mse))
+print(paste("MAE:", mae))
+```
+
+Based on the MSE and MAE I would say that the support vector regression does a solid job of predicting the outcome. 
+
+
+# Question b
+
+```{r, include = FALSE}
+set.seed(4036018)
+# Define the initial grid for tuning
+gamma <- c(0.0001, 0.001, 0.01, 0.1, 1, 10)
+cost <- c(0.1, 1, 10, 100, 1000)
+epsilon <- c(0.001, 0.01, 0.1, 1)
+
+
+# Tune the model
+tune_out <- tune(svm, medv ~ ., data = Boston[train, ],
+                 kernel = "radial", 
+                 ranges = list(gamma = gamma, cost = cost, epsilon = epsilon))
+```
+
+```{r, echo = FALSE}
+# Check the best parameters
+best_parameters <- tune_out$best.parameters
+print(best_parameters)
+
+# Plot the tuning results
+perf <- data.frame(tune_out$performances)
+
+ggplot(perf, aes(x = gamma, y = error, color = factor(cost), group = factor(epsilon))) +
+  geom_line() +
+  facet_wrap(~epsilon, scales = "free") +
+  theme_minimal() +
+  labs(title = "Tuning SVM with RBF Kernel",
+       x = "Gamma",
+       y = "Cross-validation Error")
+```
+
+In the intial grid, a cost parameter of 10, a gamma of 0.1 and epsilon of 0.1 were computed for the lowest CV error. Let's adjust the grid and see if we can increase the model performance.
+
+```{r, echo = FALSE}
+set.seed(4036018)
+# adjust grid and tune again
+gamma <- c(0.0001, 0.001, 0.08, 0.1, 0.15, 0.2)
+cost <- c(35, 40, 45, 50, 70, 80, 90)
+epsilon <- c(0.18, 0.2, 0.21, 0.22, 0.23, 0.24, 0.25)
+
+
+# Tune the model
+tune_out <- tune(svm, medv ~ ., data = Boston[train, ],
+                 kernel = "radial", 
+                 ranges = list(gamma = gamma, cost = cost, epsilon = epsilon))
+
+```
+
+```{r, echo = FALSE}
+# Check the best parameters
+best_parameters <- tune_out$best.parameters
+print(best_parameters)
+
+# Plot the tuning results
+perf <- data.frame(tune_out$performances)
+
+ggplot(perf, aes(x = gamma, y = error, color = factor(cost), group = factor(epsilon))) +
+  geom_line() +
+  facet_wrap(~epsilon, scales = "free") +
+  theme_minimal() +
+  labs(title = "Tuning SVM with RBF Kernel",
+       x = "Gamma",
+       y = "Cross-validation Error")
+```
+After adjusting the grid a few times I got an optimal gamma of 0.08, cost of 35, and epsilon of 0.18 for lowest CV error on the training data. One can also see that we get a nicely convex curve. Let us refit the model and see how it fits the test data.
+
+
+```{r, echo = FALSE}
+# fit SVM model
+best_parameters <- tune_out$best.parameters
+
+# Fit the final model
+final_model <- svm(medv ~ ., data = Boston[train, ], kernel = "radial",
+                   cost = best_parameters$cost, epsilon = best_parameters$epsilon)
+
+# Evaluate model on test set
+predictions <- predict(final_model, newdata = Boston[test, ])
+mse <- mean((Boston[test, "medv"] - predictions)^2)
+mae <- mean(abs(Boston[test, "medv"] - predictions))
+
+# Print MSE and MAE
+print(paste("MSE:", mse))
+print(paste("MAE:", mae))
+```
+
+The MSE and MAE suggest a good model performance and a substantially lower prediction error than the SVM model with the linear kernel.

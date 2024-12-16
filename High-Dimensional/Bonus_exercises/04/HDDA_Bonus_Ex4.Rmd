@@ -1,0 +1,138 @@
+---
+title: "HDDA_Bonus_Ex4"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("exercise2_grp28.RData")
+```
+
+1. You are given a list of p-values (object named pall). What is the 3rd smallest Benjamini-Hochberg corrected p-value?
+
+```{r}
+# sort pvals
+pval_sorted = sort(pall)
+# total number of tests
+m = length(pval_sorted)
+
+# desired false discovery rate
+FDR = q = 0.05
+
+# Initialize vectors
+crit_val <- numeric(m)
+BH_adjust <- numeric(m)
+decision <- logical(m)
+
+# Loop to calculate thresholds
+for (i in 1:m) {
+  crit_val[i] <- i / m * q
+  }
+  
+
+for (i in 1:m) {
+    
+  # Make decision based on comparison
+    if (pval_sorted[i] <= crit_val[i]) {
+      decision[i] <- TRUE
+    }
+    
+    else {
+      decision[i] <- F
+    }
+    
+    # adjust p-values
+    BH_adjust[i] = pmin((m/i) * pval_sorted[i] , 1)
+    
+}
+
+answer1 = BH_adjust[3]
+answer1
+
+```
+
+```{r}
+p_adjusted = p.adjust(pall, method = "BH", n = length(pall))
+
+sort(p_adjusted)
+
+```
+
+
+From the same list of p-values, estimate the lfdr at cutoff t=0.03. Assume the null-distribution is Uniform[0,1]. Use the density function in R to estimate the density of p-values. Use defaults for the arguments, but take into account that p-values are bounded. Estimate pi_0 by assuming f_1(1) = 0 and using the mixture model f(p) = pi0 f_0(p) + (1-pi0)f_1(p)
+
+
+
+
+```{r}
+# Estimate the density of all raw p-values
+p_density <- density(pall, from = 0, to = 1)
+
+# plot mixture distribution
+plot(p_density$x, p_density$y)
+
+# Calculate f(1) and estimate pi_0
+f_1 <- approx(p_density$x, p_density$y, xout = 1)$y  # Density at p = 1
+pi_0 <- f_1  # Estimate of pi_0
+
+# Calculate f(t) at t = 0.03
+f_t <- approx(p_density$x, p_density$y, xout = 0.03)$y  # Density at t = 0.03
+
+# Step 4: Calculate lFDR at t = 0.03, since f0(0.03) = 1
+lfdr_t <- pi_0 / f_t
+
+# Display result
+answer2 = lfdr_t
+
+answer2
+```
+
+
+# Question 3
+
+You are given a (nnull x p) matrix of p-values (object named pmat), where each column represents a test item and each row a realization of the p-value vector under the joint null-hypothesis (null-distribution may deviate from Uniform[0,1]). From the list of pvalues and this matrix, estimate the FDP for threshold t = 0.01, assuming pi0 = 1
+
+use the entire matrix to estimate F_0(t=0.01)
+
+```{r}
+# get pooled p-value vector by pooling permutations, since i.i.d
+p_pooled = c(pmat)
+
+
+
+t = 0.01
+
+m = ncol(pmat)
+
+pi_0 = 1
+
+
+# get cdfs
+
+# cdf pooled, H0
+F_0 = ecdf(p_pooled)
+#Plot the CDF
+plot(F_0, 
+     main = "Empirical CDF",
+     xlab = "pvals",
+     ylab = "Cumulative Probability",
+     col = "blue",
+     lwd = 2) 
+
+
+
+FDP_est = pi_0 * m * F_0(t) / (sum(p_pooled <= t))
+
+answer3 = FDP_est
+
+answer3
+```
+
+
+
+

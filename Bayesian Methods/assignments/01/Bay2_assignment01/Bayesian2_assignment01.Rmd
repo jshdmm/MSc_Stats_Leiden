@@ -1,0 +1,199 @@
+---
+title: "Bayesian Methods II: Assignment 1"
+author: "Joshua Damm & Colin Yip"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(brms)
+library(latex2exp)
+library(emmeans)
+library(bayesplot)
+library(tidybayes)
+library(forcats)
+```
+
+## Exploratory Data Analysis
+```{r}
+data <- read.table("undisclosedsource.dat", header = TRUE)
+```
+
+We first look at the relationship between the categorical variable diet and the continuous outcome, coagulation time. Visually the spread (variance) of the response (coagulation time) across the treatment groups seams to be equal. Groups B and D have slightly higher sample sizes (n = 6) compared to groups A and C (n = 4), but the difference is negligible. There appears to be one outlier in diets B and D, and a potential outlier in diet C. We will now take a closer look at the order of measurement (collection order) and its relationship with the other variables to potentially obtain a more precise picture of the data's distribution.
+
+```{r}
+#data$y <- as.factor(data$y)
+ggplot(data = data,
+       mapping = aes(x = diets, y = y,
+                     color = diets)) +
+  geom_point() +
+  labs(title = "Coagulation Times by Diet",
+       x = "Diet", 
+       y = "Coagulation Time") +
+  theme(legend.position="none")
+```
+
+There is no visible connection between Collection Order and either variable, so we opt to exclude the order of measurement as a predictive variable. For this Complete Randomized Design (CRD) with a continuous response and a categorical predictor, we can fit an ANOVA with cornerstone representation and fit the model with a Bayesian approach by including prior distributions on the model parameters. Given the small sample size, it is difficult to determine with any power if there is a valid prior distribution, nor is there any additional detail given on if a specific prior is to be assumed. We can therefore look at default priors suggested by the `brms` package, or use frequentist descriptive statistics to manually specify our own priors on the model parameters.
+
+```{r}
+ggplot(data = data,
+       mapping = aes(x = run, y = y, color = diets)) +
+  geom_point() +
+  labs(title = "Collection Order versus Coagulation Time",
+       x = "Collection Order", 
+       y = "Coagulation Time",
+       color = "Diet")
+
+```
+
+
+## Model Specification/Training
+
+```{r}
+get_prior(formula = y ~ 0 + Intercept + diets, 
+          data = data)
+```
+`brms` suggests flat (uniform) priors for the intercept, and for the $\alpha_i$ (difference for each treatment group from the reference mean in the cornerstone representation). Furthermore, it suggests a Student’s t-distribution with 3 degrees of freedom, a mean of 0, and a scale parameter of 4.4 as a weakly informative prior for $\sigma$. This is not very helpful, as the flat priors are both uninformative and provide support across $\mathbb{R}$ which is illogical in our case. We instead look at the overall and group-specific distributions regarding the response and set our priors manually.
+
+```{r}
+data |>
+  group_by(diets) |>
+  summarise(diet_mu = mean(y),
+            diet_sigma = sd(y))
+```
+
+We let the cornerstone factor be diet A with $N(61, 2)$, and for the differences for the respective diet treatments we can use a normal prior with a mean of 0 and a $\sigma$ that captures the maximal differences from the cornerstone, which in this case is a differnce of 7 for the difference between the mean of diet A and diet C. A total sample $\sigma$ of roughly 3.8 provides a prior of $Exp(1/3.845)$. 
+
+```{r}
+diet_priors <- c(
+  set_prior("normal(61, 2)", class = "b", coef = "Intercept"),
+  set_prior("normal(0, 10)", class = "b", coef = "dietsB"),
+  set_prior("normal(0, 10)", class = "b", coef = "dietsC"),
+  set_prior("normal(0, 10)", class = "b", coef = "dietsD"),
+  set_prior("exponential(1/3.845)", class = "sigma", lb = 0)
+)
+```
+
+## Model Fit and Convergence
+```{r}
+bayesian_diets <- brm(formula = y ~ 0 + Intercept + diets,
+                      data = data,
+                      prior = diet_priors,
+                      seed = 3953629,
+                      control = list(adapt_delta = 0.9),
+                      chains = 4,
+                      cores = 4)
+
+summary(bayesian_diets)
+```
+
+Next, we want to investigate the convergence of our MCMC sampling algorithm. The Effective Sample Size (ESS) of over a thousand samples and the potential scale reduction factor, $\hat{R}$, of 1 suggest convergence. The Credible Interval (CI) for the estimate for the $\alpha$ on group D includes 0, which suggests that there is no difference in means between group D and the reference group at an alpha level of 0.05. The other two CI of the estimates do not include 0, which suggests that there a differences in the group means between both C and B and the reference group A.
+
+```{r}
+mcmc_trace(bayesian_diets)
+```
+Looking at the behaviour of the chains of our Bayesian analysis, we have stable convergence across all 4 chains through all variables, as we see that each variable above demonstrates the "caterpillar" like behaviour we look for. That is, the values converge in a stable fashion towards a single mode of the presumed underlying distribution. While there are some transient spikes, it appears that the bulk of steps converges towards a single point.
+
+```{r}
+mcmc_acf(bayesian_diets)
+```
+We see that the autocorrelation of each chain reduces quite significantly across all variables. This indicates that the chains have indeed checked through the posterior in a relatively complete fashion. High autocorrelation would indicate that a chain has gotten stuck in a single point, indicating that the final values may not be the most optimal globally.
+
+```{r}
+regression_R2 <- bayes_R2(bayesian_diets, summary = FALSE)
+regression_R2_df <- data.frame(R2 = regression_R2)
+
+regression_R2_df %>%
+  ggplot(aes(x = R2)) +
+  stat_halfeye() + 
+  labs(title = "R^2 of Bayesian Estimate for Diet Effect on Coagulation Time",
+       y = "Density")
+```
+
+An estimated $R^2$ of 0.635 indicates a moderate but significant positive relationship. In the context of the treatment, this indicates that different diets explain a significant portion of the variance in patient coagulation time. 63.5% of the total variance can be explained by the sample variance of the predicted values.
+
+## Assumption Checking
+One assumption for ANOVA is that the errors follow a normal distribution. We can test this assumptions using a QQ-plot which plots the errors of our model against the quantiles of a normal distribution. The errors do not considerably deviate from the produced line of normality, which indicates that the errors indeed follow a normal distribution. This thus validates the model assumption for an ANOVA that $\hat{e}^ \sim N(0, \sigma^2)$.
+
+```{r}
+# Get fitted values from the brms model
+fitted_values1 <- fitted(bayesian_diets)
+
+# Include fitted values and residuals 
+bayesian_diets2 <- data %>%
+  mutate(fitted = fitted_values1[, 1]) %>%  
+  mutate(residuals = y - fitted)
+
+# Plot the residuals
+bayesian_diets2 %>%
+  ggplot(aes(sample = residuals)) +
+  geom_qq_line() +
+  geom_qq(colour = "red") +
+  labs(title=TeX("Q-Q Plot for Normality of Residuals, $\\hat{e}$"),
+       x="Theoretical Quantiles",
+       y="Sample Quantiles")
+
+```
+
+Looking at the distribution of residuals relative to the fitted values, we only have the treatment group (diet) as the single predictor of the response, and as such we also only have 4 fitted values (one prediction per group). Within the 4 diet groups, the residuals appear to be evenly scattered around 0. This indicates that the errors follow our assumptions of normality and that the model captures the relationship between the predictor and the response sufficiently. It is notable that there are outlying values for diets B, C, and D, similar to the original data for diets B and C. However, these may be byproducts of the small $n$ of the data.
+
+```{r}
+bayesian_diets2 %>%
+  ggplot() +
+  geom_point(aes(x = fitted, y = residuals, colour = as.factor(diets))) +
+  guides(colour = guide_legend(title = "Diet")) +
+  theme(legend.position = "bottom") + 
+  geom_hline(yintercept=0, size=0.2, linetype='dashed', colour = "red") +
+  labs(title=TeX("Residuals vs. Fitted Values"),
+       x="Fitted Values",
+       y=TeX("Residuals, $\\hat{e}_{jk}$"))
+```
+
+## Posterior Distributions
+There is an evident difference in means between Diets A and D versus Diets B and C. We see that the distributions of Diets B and C experience significant overlap, indicating that there is potentially no significant difference between the effects of the two. Similarly, there is overlap between treatments A and D. This can be validated further by looking at the pairwise comparisons between the 4 exposures.
+
+```{r}
+bayesian_emmeans <- emmeans(bayesian_diets, pairwise ~ diets)
+diet_marginals <- bayesian_diets |>
+  spread_draws(c(b_Intercept, b_dietsB, b_dietsC, b_dietsD)) |>
+  mutate(A = b_Intercept,
+         B = b_Intercept + b_dietsB,
+         C = b_Intercept + b_dietsC,
+         D = b_Intercept + b_dietsD) |>
+  gather_draws(A, B, C, D)
+
+ggplot(data = diet_marginals,
+       aes(x = .value, y = .variable)) +
+  stat_halfeye() +
+  labs(x = "Diet Treatment Mean",
+       y = "Diet",
+       title = "Marginal Means of Diet Effects on Coagulation Time")
+```
+
+Looking at the pairwise comparisons, we can validate our earlier conclusions in stating that there is no significant difference between Diets A versus D and Diets B versus C as their pairwise differences have 0 within their 95% certainty intervals. As such, we can state that Diets A and D are not significantly different in their effect on coagulation time, but the two are significantly different from Diets B and C. Similarly Diets B and C have no significant difference in effect on coagulation time.
+
+```{r}
+pairs(bayesian_emmeans)
+
+ggplot(data = diet_marginals |>
+         compare_levels(variable = .value,
+                        by = .variable,
+                        comparison = "pairwise"),
+       aes(x = .value, y = .variable)) +
+  stat_halfeye() +
+  labs(x = "Differences",
+       y = "Contrasts",
+       title = "Difference of Diet Effects on Coagulation Time") +
+  geom_vline(xintercept = 0, colour = "red", linetype = "dashed")
+```
+
+## Conclusions
+
+The above analysis performed a Bayesian 1-way ANOVA to assess the impact of various diets on coagulation time. There was initially another variable that indicated the order of measurement, but this was discarded as extraneous given both the context and lack of correlation with either other variable. The 1-way ANOVA was set up with normal priors for the reference/cornerstone diet, Diet A, and normal priors as well for the differences of the other treatments relative to that cornerstone. The variance was assumed to be exponential. Convergence diagnostic revealed convergence of the MCMC chains, low autocorrelation, and high effective sample size.
+
+In order to validate that the model was set up in accordance with the required assumptions to perform an ANOVA, the behaviour of residuals was validated. The two criteria that were assessed were the homoskedasticity of the residuals and the normality of the error term. The former was checked visually by plotting the fitted values against fit residuals and assessing if the scatter around 0 was even on both sides. Imbalance here could potentially represent bias in the model, but the plots produced for the ANOVA had relatively even scatter on both sides of 0. Increasing $n$ would make the homoskedasticity of the residuals more visually apparent. In order to check the normality of the error term, a QQ plot was used, which plots the theoretical quantiles of a normally distributed error in this context versus the actual quantiles. Once again, the proximity of plotted errors to the theoretically normally distributed error was visually checked, and there was no significant deviation seen, save for potentially wider deviation at the tails. This tail behaviour is expected given sparsity at relatively extreme values. Based on these two assumption checks, we can state the ANOVA was set up properly and the model did in fact meet the assumptions for an ANOVA. 
+
+The analysis identified two groups of of diets: Diets A and D were not statistically different from each other, nor were Diets B and C statistically different from one another. Diets A and D approximately had marginal mean coagulation times of 61.1 and 61.0 seconds, repsectively, whereas Diets B and C had higher mean coagulation times of apprixmately 65.9 and 68.0 seconds. The statistical significance of these differences was assessed using pairwise comparison, which was sufficient for the relatively low number of treatments in this experiment. Increasing the number of treatments/diets tested would require using a hierarchical approach to marginal mean comparison.
+

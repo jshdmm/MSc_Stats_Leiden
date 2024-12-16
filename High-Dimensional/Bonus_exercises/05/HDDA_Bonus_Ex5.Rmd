@@ -1,0 +1,151 @@
+---
+title: "HDDA_Bonus_Ex5"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("Data4_grp28.RData")
+```
+
+```{r}
+dim(X)
+
+train = X[1:100,]
+test = X[101:200,]
+```
+
+# Part 1: Estimate Mu1 using empirical Bayes
+
+```{r}
+sample_var_train = var(as.vector(train))
+sample_var_train
+
+theta_common_train = mean(as.vector(train))
+theta_common_test = mean(as.vector(test))
+
+
+
+tau_squared = sample_var_train - 1
+```
+
+# get posterior mean for the first column (mean)
+
+```{r}
+mu0 = 0
+n = 100
+sigma_squared = 1
+xbar.1 = colMeans(train)[1]
+
+mu_hat1 = mu0 + (1 - sigma_squared * (1/(n * tau_squared + sigma_squared))) * (xbar.1 - mu0)
+
+answer1 = mu_hat1
+answer1
+```
+
+
+
+# Part 2: Estimate Mu1 by using JS-shrinkage
+
+```{r}
+JS_est = function(lambda, theta_j, theta_common) {
+  (1 - lambda) * theta_j + lambda * theta_common 
+}
+
+
+# example lambdas
+lambdas = seq(from = 0, to = 1, by = 0.1)
+
+JS_estimates = JS_est(lambda = lambdas, theta_j = xbar.1, theta_common = theta_common_train)
+JS_estimates
+
+
+```
+
+
+#######################
+
+# get sum of squares loss function
+
+## Optimize Sum of Squares loss function to get the optimal lambda that reduces SS
+
+## SS loss function
+$sum_{i=101}^{200} sum_{j=1}^{p} [X_ij - \mu'_j(lambda)]^2$
+
+## JS-estimator
+$\mu'_j(lambda) = (1-lambda)\hat{mu}_j + lambda \hat{mu}_{common}$
+
+```{r}
+
+# Define the James-Stein estimator function
+JS_est <- function(lambda, theta_j, theta_common) {
+  (1 - lambda) * theta_j + lambda * theta_common
+}
+
+# Define the Sum of Squares Loss function
+SS_loss <- function(lambda, X, theta_j, theta_common) {
+  sum_squares <- 0
+  for (i in 1:nrow(X)) {
+    for (j in 1:ncol(X)) {
+      sum_squares <- sum_squares + (X[i, j] - JS_est(lambda, theta_j[j], theta_common))^2
+    }
+  }
+  return(sum_squares)
+}
+
+
+# Variables from the test set
+theta_js_test <- colMeans(test)  # Per-column means
+theta_js_train <- colMeans(train)  # Per-column means
+theta_common_test = mean(as.vector(test))  # Overall mean in test data
+
+# Optimize Loss fcn to find optimal lambda
+result <- optim(
+  par = 0.5,  # Initial guess for lambda
+  fn = SS_loss, 
+  X = test,  
+  theta_j = theta_js_train,  
+  theta_common = theta_common_train, 
+  method = "L-BFGS-B",  # Bounded optimization method
+  lower = 0,  # Lower bound for lambda
+  upper = 1   # Upper bound for lambda
+)
+
+# Print the optimal lambda and corresponding loss
+optimal_lambda <- result$par
+optimal_loss <- result$value
+
+cat("Optimal lambda:", optimal_lambda, "\n")
+cat("Minimum Sum of Squares Loss:", optimal_loss, "\n")
+
+```
+
+```{r}
+lambdas = seq(from =-2 , to = 2, by = 0.01)
+
+# Calculate SS_loss for each lambda
+SS_losses <- sapply(lambdas, function(lambda) {
+  SS_loss(X = test, lambda = lambda, theta_j = theta_js_train, theta_common = theta_common_train)
+})
+
+# Plot the results
+plot(lambdas, SS_losses, type = "b", col = "blue",
+     xlab = "Lambda", ylab = "Sum of Squares Loss",
+     main = "Sum of Squares Loss vs Lambda")
+```
+
+## Get final estimation of Mu1 for optimal lambda
+
+```{r}
+Mu1_JS = JS_est(lambda = optimal_lambda, theta_j = theta_js_train[1], theta_common = theta_common_train)
+
+answer2 = Mu1_JS
+answer2
+```
+
+

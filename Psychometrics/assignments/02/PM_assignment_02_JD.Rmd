@@ -1,0 +1,475 @@
+---
+title: "Psychometrics - Assignment 02"
+author: "Joshua Damm"
+date: '`r Sys.Date()`'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = F}
+library(lavaan)
+library("foreign")
+library(psych)
+library(ggplot2)
+library(corrplot) #plotting correlation matrices
+library(semPlot)  #for automatically making diagrams 
+library("knitr")
+library(ggpubr)
+library(dplyr)
+```
+
+```{r, include = F}
+dat <- read.spss("TOTAAL.SAV", to.data.frame = TRUE)
+```
+
+```{r, include = F}
+Satisfaction87 <- c(
+## Likert scale response: 1 (helemaal niet van toepassing / not at all applicable)
+## through 7 (volledig van toepassing / completely applicable)
+"S341", # In most respects my life is ideal
+"S342", # My life conditions are exellent
+"S343" # Overall I am satisfied with my life
+)
+Satisfaction91 <- c(
+## Likert scale response: --- (helemaal niet van toepassing / not at all applicable)
+## through +++ (volledig van toepassing / completely applicable)
+"SS281", # In most respects my life is ideal
+"SS282", # My life conditions are exellent
+"SS283" # Overall I am satisfied with my life
+)
+```
+
+
+```{r, include = F}
+dat[,Satisfaction87]
+dat1 <- sapply(dat[, c(Satisfaction87, Satisfaction91)], as.numeric)
+
+dat1 = as.data.frame(dat1)
+dat1= na.omit(dat1)
+```
+
+# 1 Introduction
+
+Understanding and quanifiying life satisfaction has been a main objective of psychometric research, as it is thought to be a key indicator of well-being, happiness, and resistance towards phyiscal and psychiatric diseases. In this study, we used confirmatory factor analysis on data coming from a survey on the social integration of young adults (n = 1245) to investigate changes in life satisfaction  over a span of 4 years from 1987 to 1991, using the same questionnaire to assess life satisfaction. The goal was to investigate how different indicators from the life satisfaction questionnaire relate to the latent construct of life satisfaction, and which statistical model is suitable to model the relationship between life satisfaction and the questionnaire indicators, taking into account statistical uncertainty and constraints. Furthermore, we wanted to investigate if life satisfaction changes in our cohort over the 4-year span, again taking into account statistical uncertainty.
+
+# 2 Methods
+
+## 1. Data set
+
+The data comes from a survey on social integration in young adults. On two measurement points in 1987 and 1991 respecitvely, a questionnaire measuring the latent construct of life satisfaction was administered. The questionnaire constists of 3 items (indicators). The first item ("S341" in 1987 and "SS281" in 1991) states "In most respects my life is ideal", item 2 states ("S342" in 1987 and "SS282" in 1991) states "My life conditions are exellent", and item 3 ("S343" in 1987 and "SS283" in 1991) states "Overall I am satisfied with my life". Participants responded on a 7 point likert-scale ranging from "not at all applicable" to "completely" applicable. Therefore, a higher item score is applying a higher score on the latent trait life satisfaction. The items were identical over the two measurement points. The indicators are used to explain life satisfaction using confirmatory factor analysis. With the start of the data collection in 1987, 1775 participants ranging from 17 through 27 years of age participated in the study. Not all students filled out the questionnaires comprehensively. We used row-wise / list-wise deletion to remove participants when their reponses were not available for one of the item reponses across both measurement points. After the removal of missing data, n = 1245 participants remained for the final statistical analysis, including all item responses for both measurement points.
+
+## 2. Statistical analysis
+
+We used cofirmatory factor analysis which assumes that a latent factor life satisfaction loads on the respective items measuring it. For all the factor models we tested, we imposed a simple two-factor structure were all 3 items loaded on the respective latent life satisfaction factor for that measurement point (1987 life satisfaction loaded on 3 items, and 1991 life satisfaction loaded on the other 3 items). Since our two latent factors are not only correlated, but are though to reflect the same construct on the same participants after 4 years, we have a longitudinal design. Therefore, we tested for factorial invariance to see which assumptions and statements we can make about the underlying statistical properties of our factor model when comparing the two groups (measurement points) regarding their life satisfaction. The level of factorial invariance determines our ability to make statements about the comparisons of latent factors across both measurement points. We tested for configural invariance by comparing a model with configural invariance (same factorial structure across time points) with a model with weak factorial invariance (equal factor loadings across time points, and one freely estimated factor variance). We tested for strong factorial invariance (also called scalar invariance), by comparing a model with strong factorial invariance (equal intercepts across time points, and one freely estimated factor mean while the other is set to 0). We used $\chi^2$-tests, RMSEA, CFI, AIC and BIC to test for model fit and to compare models.
+
+
+# Results
+
+Looking at descriptive statistics, one can see that there is a tendency for higher life satisfaction scores in ascending item order. Descriptively, there does not seem to be a difference between the mean item scores over time (also see following table).
+
+```{r, echo = F}
+#descriptives (means, sds)
+descriptive_stats = as.data.frame(describe(dat1))
+
+descriptive_stats = descriptive_stats %>% 
+  select(n, mean, sd, median)
+
+kable(descriptive_stats)
+
+```
+
+
+```{r, include = F}
+covmat = cov(dat1)
+covmat
+kable(as.data.frame(covmat))
+```
+
+The following figure shows all pairwise item correlations. 
+
+```{r , echo = F}
+#visusal correlation matrix
+corrplot(cor(dat1), order = "original", tl.col='black', tl.cex=.75) 
+```
+
+We can see that the pairwise identical items measuring life satisfaction over both time points are correlated, which is to be expected. Interestingly, item correlations within groups are considerably higher than between groups. This means that participants at one time point responded more similar to questions of life satisfaction on different items compared to the similarity in responding to an identical item across the time points.
+
+```{r, include = F}
+# Fit a two-factor model on the 1987 and 1991 life satistfaction questionnaires
+two_factor_model <- '
+  # Factor 1 (Life satisfaction 1987) loads on S341, S342, S343
+  F1 =~ l11*S341 + l21*S342 + l31*S343
+  
+  # Factor 2 (Life satisfaction 1991) loads on SS281, SS282, SS283
+  F2 =~ l42*SS281 + l52*SS282 + l62*SS283
+  
+  # Covariance between the two latent factors
+  F1 ~~ F2
+  
+  # Correlated residuals
+  S341 ~~ SS281
+  S342 ~~ SS282
+  S343 ~~ SS283
+  
+  # Variances of latent factors (set to 1 for identification)
+  F1 ~~ 1*F1
+  F2 ~~ 1*F2
+'
+
+
+
+
+# n = 1245 after removement of missing values
+n_obs = dim(dat1)[1]
+
+
+# Fit the model using lavaan and auto.fix = TRUE (sets the first factor loading to 1 for each latent factor)
+two_factor_fit_out <- lavaan::cfa(two_factor_model, sample.cov = covmat, sample.nobs = n_obs, auto.fix.first = F)
+
+# Print the summary of the fit
+summary(two_factor_fit_out, fit.measures = TRUE, standardized = TRUE)
+```
+
+To get a priliminary overview of the factor model structure, we fit a two-factor model with fixed factor co(variances), and fixed covariances between the pairwise identical items. For model identification purposes, and because we do not know the scale of measurement for the latent factors, the latent factor variances are set to 1 (unit variance identification constraint). Therefore, we assume in this model that the two latent unobserved factors have the same spread in their underlying assumed distribution. Because the scales of the common factors are not defined, it is not possible to estimate both the variance and factor loading of a latent factor. All factor loadings (lambdas) can therefore be freely estimated. There is expected covariance between the two latent factors as they measure the same construct over time. Furthermore, the errors of the respective identical items over the two measurement points (factors) are correlated as well. This makes a lot of sense since the same questionnaire for life satisfaction was used both in 1987 and 1991, and therefore the same items and the errors in the two respective measurement points are expected to correlate. 
+
+
+The two latent factors shared significant covariance (phi21 = 0.41, SE = 0.03, z = 14.18, p < 0.0001). This means that the variations of the two factors are positively associated. When one factor increases, there is a tendency that the other factor increases as well, and vice versa. Both factors loaded significantly on the specified items (all p < 0.0001). The parameter coefficients for the factor loadings were standardized. This means that both the observed indicators and the latent factors have been transformed to the same scale. A unit increase in the indicator corresponds to a unit increase in the latent factor. F1 (life satisfaction in 1987) loaded significantly on items S341 (l11 = 1.163), S342 (l21 = 0.983), and S343 (l31 = 0.918). F2 (life satisfaction in 1991) loaded significantly on items SS281 (l42 = 1.163), SS282 (l52 = 0.983), and SS283 (l62 = 0.918). This shows that all items show a rather strong load on the factors. Since all loadings are close to one, you can on average assume that a unit increase on the indicators corresponds to a unit increase on the respective factor (when both the factors and the indicators were standardized). The following figure shows the two-factor model we esimtated with configural invariance.
+
+
+```{r, echo = F}
+# Plot the two-factor model without mean structure
+
+# Create a scaled version of your factor model to enhance covariance visibility
+# Scale factor (choose a value that makes sense based on your covariances)
+scale_factor <- 5  # Adjust this value as needed
+
+# Create the SEM path plot
+semPaths(two_factor_fit_out, 
+         what = "est", 
+         edge.label.cex = 0.95,           # Increase edge label size
+         sizeLat = 4, 
+         sizeMan = 4,
+         fade = FALSE,  # Makes the edges more visible
+         edge.width = 0.5,
+         edge.color = "black",         # Change edge color for better contrast
+         edge.label.color = "green",      # Edge label color
+         layout = "tree")       
+
+# Add a title
+title("Two-Factor Model without mean structure", line = 2.5, cex.main = 1.5)  # Adjust 'line' and 'cex.main' for positioning and size
+             # Choose a layout that fits your data
+
+```
+
+In the above specified two-factor model 16 model parameters had to be estimated with 21 observed parameters (6 variances, and 15 covariances) and 5 degrees of freedom. The model is identified, because the degrees are freedom are positive (df = 5), i.e. there are more observed parameteres than parameters that have to be estimated in the model.
+
+
+Next, we want to test for longitudinal invariance across the measurement points of 1987 and 1991. This is crucial, as the level of invariance determines which conclusions we can make from the modelling of our data. To compare the latent factor means of life satisfaction in 1987 and 1991, we need to have strong factorial invariance. A two-factor model with assumed configural invariance (and a mean structure by including intercepts on the indicators and fixed factor means of 0) is first compared with weak factorial invariance (equal factor loadings across groups and one freely estimated factor variance). 
+
+The configural invariance model fits the data well, i.e. there is no difference between the model-implied and observed variance-covariance matrix ($\chi^2$(5) = 9.15, p = 0.103). 
+
+```{r, include = F}
+# Get indicator means and store them in a vector
+mean_vec = sapply(dat1, mean)
+```
+
+
+```{r, include = F}
+## STEP 1: define longitudinal model without equality constraints
+## Configural invariance. Fit the same factor model to all time points (with residual covariances).
+## fix factor variances to 1 and factor means to 0
+long_inv_model <- '
+            # COVARIANCES
+            # regression equations
+            F1 =~ l11*S341 + l21*S342 + l31*S343
+  
+            # Factor 2 (Life satisfaction 1991) loads on SS281, SS282, SS283
+            F2 =~ l42*SS281 + l52*SS282 + l62*SS283
+  
+            # Covariance between the two latent factors
+            F1 ~~ F2
+            
+            # residual covariances
+            S341 ~~ SS281
+            S342 ~~ SS282
+            S343 ~~ SS283
+            
+           
+
+            # residual variances
+            S341 ~~ S341
+            S342 ~~ S342
+            S343 ~~ S343
+            SS281 ~~ SS281
+            SS282 ~~ SS282
+            SS283 ~~ SS283
+            
+            
+
+            # common factor (co)variances (set to 1 for identification)
+            F1 ~~ F2
+            F1 ~~ 1*F1
+            F2 ~~ 1*F2
+            
+            
+            # MEANS
+            # intercepts observed indicators 
+            S341 ~ 1
+            S342 ~ 1
+            S343 ~ 1
+            SS281 ~ 1
+            SS282 ~ 1
+            SS283 ~ 1
+           
+            
+            # means common factors (fix the means to 0 (configural invariance))
+            F1 ~ 0*1
+            F2 ~ 0*1
+            '
+## run the model
+long_inv_model_out = lavaan(long_inv_model, sample.cov = covmat,
+                     sample.mean = mean_vec, sample.nobs = n_obs,
+               likelihood = "normal", fixed.x = FALSE)
+## output
+summary(long_inv_model_out)
+```
+
+
+
+
+```{r, echo = F}
+# Plot the configural invariance model
+scale_factor <- 5  
+
+# Create the SEM path plot
+semPaths(long_inv_model_out, 
+         what = "est", 
+         edge.label.cex = 0.95,          
+         sizeLat = 4, 
+         sizeMan = 4,
+         fade = FALSE, 
+         edge.width = 0.5,
+         edge.color = "black",       
+         edge.label.color = "green",   
+         layout = "tree")       
+
+# Add a title
+title("Two-factor model with configural invariance", line = 2.5, cex.main = 1.5)   
+```
+
+The weak factorial invariance model also fits the data well, i.e. there is no difference between the model-implied and observed variance-covariance matrix ($\chi^2$(7) = 13.762, p = 0.056). However, the $\chi^2$ test for model fit shows a tendency for significance, which means that there is a tendency for an overfit of the model. The $\chi^2$-test for model comparison suggests that there is no evidence that the weak invariance model has a worse fit than the configural invariance model ($\chi^2$(2) = 4.6163, p = 0.01), suggesting that weak invariance holds. The AIC and BIC of the configural invariance (AIC = 21755, BIC = 21868) and weak factorial invariance (AIC = 21756, BIC = 21858) suggest that the weak invariance model fits better do the data based on the BIC, although there is no substantial difference based on the AIC values. The difference in the CFI values between the configural and the weak invariance model of 0.001 suggests that the weak invariance model fits well and the weak factorial invariance holds. In terms of the RMSEA, the configural model (RMSEA = 0.026), and the weak invariance model (RMSEA = 0.028) show both a good fit (both RMSEA < 0.05). The RMSEA for the weak invariance model is slightly higher, however, the difference is negligible, suggesting that weak invariance holds. The following figure shows the final statistically valid two-factor model with weak factorial invariance.
+
+```{r, include = F}
+# STEP 2 test for weak factorial invariance
+## additional constrain factor loadings to be equal across occasions
+## STEP 1: define longitudinal model without equality constraints
+## Configural invariance. Fit the same factor model to all time points (with residual covariances).
+## fix one factor variance to 1 and all factor means to 0
+long_inv_weak <- '
+            # COVARIANCES
+            # regression equations
+            F1 =~ l11*S341 + l21*S342 + l31*S343
+  
+            # Factor 2 (Life satisfaction 1991) loads on SS281, SS282, SS283
+            F2 =~ l11*SS281 + l21*SS282 + l31*SS283
+  
+            # Covariance between the two latent factors
+            F1 ~~ F2
+            
+            # residual covariances
+            S341 ~~ SS281
+            S342 ~~ SS282
+            S343 ~~ SS283
+            
+           
+
+            # residual variances
+            S341 ~~ S341
+            S342 ~~ S342
+            S343 ~~ S343
+            SS281 ~~ SS281
+            SS282 ~~ SS282
+            SS283 ~~ SS283
+            
+            
+
+            # common factor (co)variances
+            F1 ~~ F2
+            F1 ~~ 1*F1
+            F2 ~~ F2 # free second factor variance
+            
+            
+            # MEANS
+            # intercepts observed indicators 
+            S341 ~ 1
+            S342 ~ 1
+            S343 ~ 1
+            SS281 ~ 1
+            SS282 ~ 1
+            SS283 ~ 1
+           
+            
+            # means common factors 
+            F1 ~ 0*1
+            F2 ~ 0*1
+            '
+## run the model
+long_weak_inv_out = lavaan(long_inv_weak, sample.cov = covmat,
+                     sample.mean = mean_vec, sample.nobs = n_obs,
+               likelihood = "normal", fixed.x = FALSE)
+## output
+summary(long_weak_inv_out)
+
+anova(long_inv_model_out, long_weak_inv_out) 
+```
+```{r, include = F}
+#RMSEA
+RMSEA_configural = fitMeasures(long_inv_model_out, "RMSEA")
+RMSEA_weak = fitMeasures(long_weak_inv_out, "RMSEA")
+RMSEA_configural
+RMSEA_weak
+
+#CFI
+CFI_configural = fitMeasures(long_inv_model_out, "cfi")
+CFI_weak = fitMeasures(long_weak_inv_out, "cfi")
+
+diff_CFI = CFI_configural - CFI_weak
+diff_CFI
+```
+
+
+
+
+```{r, echo = F}
+# Plot model with weak invariance
+scale_factor <- 5  #
+
+# Create the SEM path plot
+semPaths(long_weak_inv_out, 
+         what = "est", 
+         edge.label.cex = 0.95,          
+         sizeLat = 4, 
+         sizeMan = 4,
+         fade = FALSE,  
+         edge.width = 0.5,
+         edge.color = "black",       
+         edge.label.color = "orange",  
+        layout = "tree")  
+
+
+title("Two-factor model with weak factorial invariance", line = 2.5, cex.main = 1.5)  
+
+```
+
+```{r, include = F}
+# STEP 3: Test for strong strong factorial invariance
+## 1) Constrain intercepts to be equal across occasions (all previous restrictions still hold)
+## 2) Free all factor means except the one of the first group
+
+long_strong_inv <- '
+             # COVARIANCES
+            # regression equations (equal factor loadings)
+            F1 =~ l11*S341 + l21*S342 + l31*S343
+  
+            # Factor 2 (Life satisfaction 1991) loads on SS281, SS282, SS283
+            F2 =~ l11*SS281 + l21*SS282 + l31*SS283
+  
+            # Covariance between the two latent factors
+            F1 ~~ F2
+            
+            # residual covariances
+            S341 ~~ SS281
+            S342 ~~ SS282
+            S343 ~~ SS283
+            
+           
+
+            # residual variances
+            S341 ~~ S341
+            S342 ~~ S342
+            S343 ~~ S343
+            SS281 ~~ SS281
+            SS282 ~~ SS282
+            SS283 ~~ SS283
+            
+            
+
+            # common factor (co)variances, free one vactor variance
+            F1 ~~ F2
+            F1 ~~ 1*F1
+            F2 ~~ F2
+            
+            
+            # MEANS
+            # Intercepts are supposed to be equal across both groups
+            S341 ~ I1*1
+            S342 ~ I2*1
+            S343 ~ I3*1
+            SS281 ~ I1*1
+            SS282 ~ I2*1
+            SS283 ~ I3*1
+           
+            
+            # Free all factor means except the one from the first group
+            F1 ~ 0*1
+            F2 ~ 1
+            '
+## run the model
+long_strong_inv_out = lavaan(long_strong_inv, sample.cov = covmat,
+                     sample.mean = mean_vec, sample.nobs = n_obs,
+               likelihood = "normal", fixed.x = FALSE)
+## output
+summary(long_strong_inv_out)
+
+anova(long_weak_inv_out, long_strong_inv_out)
+```
+
+```{r, include = F}
+#RMSEA
+RMSEA_weak
+RMSE_strong = fitMeasures(long_strong_inv_out, "RMSEA")
+RMSE_strong
+
+#CFI
+CFI_weak
+CFI_strong = fitMeasures(long_strong_inv_out, "cfi")
+CFI_strong
+
+diff_CFI = CFI_weak - CFI_strong
+diff_CFI
+```
+
+The strong factorial invariance model does not fit the data well, i.e. there is a significant difference between the model-implied and observed variance-covariance matrix ($\chi^2$(9) = 29.918, p < 0.001). The $\chi^2$-difference test for model comparison suggests that there is evidence that the strong factorial invariance model has a worse fit than the weak invariance model ($\chi^2$(2) = 16.156, p < 0.001), suggesting that strong factorial invariance does not hold. The AIC and BIC for the weak (AIC = 21756, BIC = 21858) and strong (AIC = 21768, BIC = 21860) factorial invariance models suggest that the weak invariance model shows a better fit to the data, especially based on the AIC value. The difference in the CFI values between the weak (CFI = 0.998) and the strong invariance model (CFI = 0.993) of 0.005 still suggests that there is a small difference in fit of the two models. In terms of the RMSEA, the weak invariance model (RMSEA = 0.028), and the strong invariance model (RMSEA = 0.043) show both a good fit (both RMSEA < 0.05). In total, the different fit indices are not suggesting the same conclusion. However, taking into account the significant $\chi^2$-test of model fit and significant $\chi^2$-difference test for model comparison, one can conclude that strong invariance does not hold. The best fitting final model with valid assumptions is therefore the model with weak factorial invariance. It is surprising that strong factorial invariance does not hold as the same questionnaire is given to the same participants after 4 years. Therefore, there must be further factors that cause varying intercepts in participants.
+
+
+
+
+
+
+
+```{r, include = F}
+# significant mean difference in life satisfaction across time points?
+summary(long_weak_inv_out, ci = TRUE)
+```
+
+Finally, one objective of this study was to investigate whether life satisfaction improves or deteriorates from 1987 to 1991. We therefore want to compare the means of the latent factors across both time points. In the strong factorial invariance model, the first mean of the latent factor life satisfaction in 1987 was set to 0 for model identification. The second factor (life satisfaction in 1991) was freely estimated at a significantly higher value (F2 = 0.087 SE = 0.034, z = 2.537, p = 0.011), indicating that life satisfaction increased over the 4-year span. However, strong factorial invariance does not hold in our sample. This poses a challenge for directly comparing latent means because without assuming strong factorial invariance, one cannot assume that the item intercepts are the same across time points. Since the item intercepts might differ, any change in the latent means might be confounded by these differences in intercepts. Changes in item scores could be either due to changes in the latent factors, or changes in baseline scores on the items when the latent factor is 0 (intercepts). We are interested in changes in the latent factor over time, and not in the pure changes in item scores. Another approach could be testing for partial scalar invariance, which provides more statistical certainty in comparing latent factor means, because it assumes that a subset of item intercept pairs can be assumed equal across time. However, even when considering a model with partial scalar invariance, there are still item intercepts that will have to be freely estimated, because strong factorial invariance does not hold. Therefore, there will always remain a potentially confounding source, and we will never be able to certainly state that changes in the factor means over time are due to the changes in the item scores over time, or due to variations in baseline scores (intercepts) on the respective items for which the intercepts had to be freely estimated. 
+
+
+# Discussion
+
+This study aimed to investigate changes in life satisfaction from 1987 to 1991 using a two-factor model based on three life satisfaction items administered at both time points. Descriptive statistics indicated no differences between the mean item scores for life satisfaction in 1987 and 1991 albeit no inference statistics were run. A two-factor confirmatory factor analysis (CFA) model was tested, where life satisfaction as a latent factor at each time point loaded on the three corresponding items. The factors shared a significant positive covariance, indicating that higher life satisfaction in 1987 was associated with higher life satisfaction in 1991.
+
+The model fit well with configural and weak factorial invariance, suggesting that the factor structure and loadings were consistent across time points. However, the strong factorial invariance model, which tests for equal item intercepts across time points, did not fit the data well, and showed a worse fit compared to the weak factorial invariance model. This indicates that strong scalar invariance does not hold in our sample, putting limitations regarding latent factor comparison over time.
+
+Despite the lack of strong factorial invariance, the analysis indicated that life satisfaction in 1991 was slightly higher than in 1987. However, due to the absence of strong scalar invariance, this result should be interpreted cautiously, as the difference may be confounded by changes in item intercepts rather than purely reflecting changes in the latent life satisfaction construct. Further analysis, such as testing for partial scalar invariance, could provide more insight but would still leave some uncertainties regarding the true change in life satisfaction over time.
+
+Despite the rather large sample size (n = 1245) we might have lost a significant amount of statistical power by removing 530 participants due to missing data. Possibly, imputation techniques could have increased power and therefore allowed for detecting strong factorial invariance. Generally however, the sample size was still considerably high, and the sample size between both groups (time points) was equal. Another possibility is that other factors lead to the fact that strong factorial invariance could not be reached, such as an unsuitable amount of items or specified latent factors. Given the simple factorial structure and the low amount of items in this longitudinal design, however, it is still surprising that strong factorial invariance could not be found. Items within groups were considerably higher correlated than between groups. A reason for this could be that there were external factors that influenced particpants baseline response behaviors independently of their values of the latent factor of life satisfaction. The participants' home country and the background of the data collection process is not stated specifically, and there were a lot of political upheavals from the late 1980s and early 1990s which could have influenced participants' response behavior.
+
+All taken together, the research questions if life satisfaction in young adults changed from 1987 to 1991 could not be answered, because the statistical requirements for making such a statements were not met. However, there are hints that life satisfaction could have improved slightly over time. Furthermore, the statistical and conceptual relationship between the respective items of the life satisfaction questionnaire and their underlying latent factor of life satisfaction could be further pinpointed. Life satisfaction loaded equally on all identical questionnaire items over both measurement points, indicating that the relationship between life satisfaction and the constructs measured by the respective items remained the same over a 4-year span.
+
+
+
+

@@ -1,0 +1,735 @@
+---
+title: "Psychometrics Data Assignment 1"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = F}
+library("foreign")
+library(dplyr)
+library(psych)
+library(ggplot2)
+library(ggpubr)
+library(boot)
+library(lavaan)
+library("knitr")
+library("ltm")
+library(lordif)
+```
+
+
+```{r, include = F}
+dat <- read.spss("TOTAAL.SAV", to.data.frame = TRUE)
+```
+
+```{r, include = F}
+Impulsivity87 <- c(
+## Likert scale response: 1 (helemaal niet van toepassing / not at all applicable)
+## through 7 (volledig van toepassing / completely applicable)
+"S255", ## If I have to make a decision in a confused situation, I prefer to use quite some time
+"S264", ## My reactions to unexpected situations are rather careful
+"S269", ## I feel comfortable in situations that need quick action
+"S274", ## I usually make decisions only after contemplating all arguments for or against
+"S279", ## I rather work fast with a higher chance of errors than slow but faultless
+"S292" ## If I want to do something important, I usually contemplate all possible consequences
+## because 
+)
+
+General.psychological.health87 <- c(
+## 1: more / better than usual,
+## 2: the same as usual,
+## 3: less / less well than usual,
+## 4: much less than usual.
+## Or reversed if the item is counter indicative:
+## 1: not at all
+## 2: not more than usual
+## 3: a bit more than usual
+## 4: much more than usual
+"S327", ## Can you concentrate on the things you're busy with lately?
+"S328", ## Have you lost sleep over worries lately?
+"S329", ## Do you have the feeling that your activities are useful and meaningful?
+"S330", ## Do you feel able to make decisions lately?
+"S331", ## Do you have the feeling that you are constantly under pressure lately?
+"S332", ## Do you have the feeling that you can't manage your problems lately?
+"S333", ## Do you have pleasure in your daily activities lately?
+"S335", ## Did you feel unhappy and dejected lately?
+"S336", ## Did you lose self-confidence lately?
+"S337", ## Did you consider yourself a worthless person lately?
+"S338" ## On the whole, did you feel reasonably happy lately?
+)
+Gender <- c("M4") ## Identifies as 0 (woman) or 1 (man)
+Study.delay87 <- c("M232") ## Years (0 through ...)
+Age87 <- c("M37") ## Years (17 through 27)
+```
+
+
+# 1 Introduction
+
+This report is investigating how two test questionnaires coming from a large-scale survey on social integration of young adults perform on measures of Classical Test Theory (CTT) and Item Response Theory (IRT). The two questionnaires aim at measuring impulsivity and general psychological health (GPH) through a series of Likert-scale items. In particular, the dataset utilized in this study contains data from 1,775 young adults aged 17 to 27 years in 1987. Impulsivity and GPH are crucial constructs in psychometric research as they are thought to give valuable insights into human behavior and understanding of psychopathology. In this report, we aim to evaluate the internal consistency of both tests, compute a variety of reliability estimates, and examine the measurement precision across different levels of the underlying latent traits. Moreover, aspects of construct validity, test improvement, and potential biases in test items with respect to background variables, such as gender, age, and study delay, are discussed. Finally, this reports discusses practical implications of psychometric modelling for research and clinical practice. 
+
+
+
+
+# 2 Methods 
+
+## 2.1 Dataset
+
+The data for this study were drawn from a large-scale survey on social integration, conducted in 1987, with a sample of 1,775 young adults aged between 17 and 27 years. The sample included test measures of two psychological contructs, including impulsivity and general psychological health (GPH). Furthermore, demographic information were available for gender, age, and the number of years participants extended their studies (study delay). Both latent constructs were measured using two separate psychometric tests. Each test consists of multiple items rated on Likert-type scales. Impulsivity was measures on a 7-point Likert scale ranging from "not at all applicable" to "completely applicable", including for example items about reactions in arbitrary situations that require action, speed and certainty in decision making, and dealing with the balance between decision speed and faultness. GPH was measured on a 4-point Likert scale ranging from "not at all" to "much more than usual", including for example items about concentration, sleep quality, rumination, and perceived stress. After removing missing data, 1650 participants were included in the final analysis. For the impulsivity test, items 269 ("I feel comfortable in situations that need quick action") and 279 ("I rather work fast with a higher chance of errors than slow but faultless") had to be inverted because low scores indicated a high value on the latent factor. Later reliability analyses showed that these items were correlated with the first principle component. 
+
+## 2.2 Statistical analysis
+
+Descriptive statistics were computed to ensure the absence of a sample bias. The internal consistency of both tests was assessed using Cronbach's alpha and McDonald's omega. Cronbach's alpha was computed for both test scores to evaluate the internal consistency of the items within each test. McDonald's omega, which provides a more general measure of reliability by taking into account the factor structure of the test, was also calculated. The 90% confidence intervals for both alpha and omega were computed using a bootstrapping approach. For the investigation of the latent traits of impulsivity and GPH, a one-factor model (confirmatory) was computed. The factor variance was set to 1, following a congeneric model. To evaluate the fit of the one-factor model to the respective tests, the factor loadings and error variances were extracted. For the item-level analysis, Graded Response Models (GRM), and Partial Credit Models (PCM) were fit to allow for the assessment of item difficulty and discrimination parameters, therefore giving insight on how well the items distinguish between individuals at different levels of the latent traits. Lastly, we performed Differential Item Functioning (DIF) analysis, to examine whether any items from the impulsivity and GPH tests exhibited bias with respect to gender, age, or study delay. Age, and study delay were dichotomized using a median split.
+
+
+
+```{r, include = F}
+all = c(Impulsivity87, General.psychological.health87, Gender, Study.delay87, Age87)
+
+data_all = dat[, all]
+
+# delete rows with missing values
+data_all = na.omit(data_all)
+```
+
+
+
+
+```{r, include = F}
+# convert items to numeric data type
+df_imp = as.data.frame(sapply(data_all[ , Impulsivity87], as.numeric))
+df_GPH = as.data.frame(sapply(data_all[ , General.psychological.health87], as.numeric))
+df_gender = as.data.frame(sapply(data_all[ , Gender], as.numeric))
+df_studydelay = as.data.frame(sapply(data_all[ , Study.delay87], as.numeric))
+df_age = as.data.frame(sapply(data_all[ , Age87], as.numeric))
+```
+
+
+
+```{r, include = F}
+# handle missing data (delete all rows with missing data)
+df_imp[ , "S279"] <- 8L - df_imp[ , "S279"] # revert items
+df_imp[ , "S269"] <- 8L - df_imp[ , "S269"]
+
+
+# get total test score for impulsivity and GPH
+imp_total = as.data.frame(rowSums(df_imp))
+GPH_total = as.data.frame(rowSums(df_GPH))
+```
+
+
+```{r, include = F}
+# descriptive statistics for item scores
+imp_item_stats = psych::describe(df_imp)
+GPH_item_stats = psych::describe(df_GPH)
+
+# and for total test score
+psych::describe(imp_total)
+psych::describe(GPH_total)
+```
+
+
+
+```{r, include = F}
+# Plot descriptive stats from item scores on impulsivity and general psychological health
+df_stats_imp = as.data.frame(lapply(imp_item_stats, function(x) round(x, 2)))
+df_stats_GPH = as.data.frame(lapply(GPH_item_stats, function(x) round(x, 2)))
+
+df_stats_imp[c("vars", "trimmed", "mad")] = NULL
+df_stats_GPH[c("vars", "trimmed", "mad")] = NULL
+
+# add item names
+item = rownames(imp_item_stats)
+df_stats_imp = cbind(item, df_stats_imp)
+
+item = rownames(GPH_item_stats)
+df_stats_GPH = cbind(item, df_stats_GPH)
+```
+
+# 3 Results
+
+## 3.1 Classical Test Theory Analysis
+
+When looking at the total test score, the maximum score for impulsivity is 42 (6 items x 7). The highest achieved test score was 39 and the lowest score was a 6. Participants (n = 1650) showed on average moderate impulsivity scores (mean = 25.61, SD = 5.99). For the individual items, regarding the possible score range from 1 to 7, items "S292" showed the highest average item score (mean = 4.62, SD = 1.71), whereas item "S255" showed the lowest item score (mean = 3.73, SD = 1.79). For an overview of all impulsivity item scores, also see the following table. \
+
+
+```{r, echo = F}
+# Plot the data frame as a table
+#ggtexttable(df_stats_imp, rows = NULL, theme = ttheme("light"))
+kable(df_stats_imp)
+```
+
+
+The maximum score for general psychological health (GPH) is 44. The highest reported score on GPH was 42, and the lowest was 11. Subjects showed on average a moderate GPH (mean = 19.83, SD = 4.58). For the individual items, item "S331" showed the highest score (mean = 2.11, SD = 0.93), and item "S337" the lowest score (mean = 1.26, SD = 0.57). Interestingly, item "S337" showed the lowest item score, but also the highest skewness, indicating that many subjects scored low on this item and a few subjects showed very high scores, indicating that this item is well-suited for differentiating subjects across a subdomain of GPH. For an overview of all general psychological health item scores, also see the following table. 
+
+```{r, echo = F}
+#ggtexttable(df_stats_GPH, rows = NULL, theme = ttheme("light"))
+kable(df_stats_GPH)
+```
+
+
+```{r, include = F}
+
+## IMPULSIVITY
+#get variance-covariance matrix
+S_imp = cov(df_imp)
+
+m = 6
+alpha_imp <- (m)/(m-1)*(1-(sum(diag(S_imp)))/sum(S_imp))
+
+
+## General psychological health
+#get variance-covariance matrix
+S_GPH = cov(df_GPH)
+
+m = 11
+alpha_GPH <- (m)/(m-1)*(1-(sum(diag(S_GPH)))/sum(S_GPH))
+```
+
+When investigating the test reliabilities, the Cronbach-Guttman (C-G) reliabilities (alpha) were computed. For the impulsivity test in the present sample the C-G reliability is 0.62. This alpha indicates low internal consistency. The bootstrapped 90% CI for this alpha is [0.5898,  0.6487]. The C-G reliability for GPH in our sample was estimated as 0.81. The bootstrapped 90% CI for this alpha is [0.7915,  0.8239]. This indicates good internal consistency.
+
+
+```{r, include = F}
+set.seed(4036018)
+# fcn for bootstrapping C-G reliability
+cronbach_boot <- function(df, indices) {
+  
+  
+  # Use the sample of data defined by the bootstrap indices
+  d <- df[indices, ]
+  
+  # get variance-covariance matrix
+  covmat = cov(d)
+  m = dim(df)[2]
+  
+  # Compute C-G reliability
+  alpha <- (m)/(m-1)*(1-(sum(diag(covmat)))/sum(covmat))
+  
+  return(alpha)
+}
+
+
+# Set the number of bootstrap replicates
+n_boot <- 1000
+
+# Bootstrapping for impulsivity C-G alpha
+boot_test1 <- boot(data = df_imp, statistic = cronbach_boot, R = n_boot)
+
+# Bootstrapping for GPH C-G alpha
+boot_test2 <- boot(data = df_GPH, statistic = cronbach_boot, R = n_boot)
+
+# Compute the 90% confidence intervals for Cronbach's alpha
+ci_test1 <- boot.ci(boot_test1, type = "perc", conf = 0.90)
+ci_test2 <- boot.ci(boot_test2, type = "perc", conf = 0.90)
+
+# Print the results
+ci_test1
+ci_test2
+```
+
+
+```{r, include = F}
+# Congeneric one-factor model for impulsivity
+model1 <- ' 
+  Factor =~ S255 + S264 + S269 + S274 + S279 + S292
+  Factor ~~ 1*Factor  # Constrain the factor variance to 1
+'
+
+# Congeneric one-factor model for GPH
+model2 <- ' 
+  Factor =~ S327 + S328 + S329 + S330 + S331 + S332 + S333 + S335 + S336 + S337 + S338
+  Factor ~~ 1*Factor  # Constrain the factor variance to 1
+'
+```
+
+```{r, include = F}
+# Fit the one-factor model for both tests
+fit1 <- cfa(model1, data = df_imp)
+fit2 <- cfa(model2, data = df_GPH)
+
+# Summarize the model results
+summary(fit1, fit.measures = TRUE, standardized = TRUE)
+summary(fit2, fit.measures = TRUE, standardized = TRUE)
+```
+
+To investigate the item loadings and error variances, we computed a congeneric one-factor model. All items load on a single factor, and the factor has a variance of 1. In the following table you see the factor loadings and error variances for the impulsivity items. MacDonalds Omega was 0.64. This is a slightly higher estimated reliability than the C-G reliability (alpha). 
+
+
+```{r, include = F}
+## IMPULSIVITY
+
+# Extract parameter estimates (factor loadings and error variances)
+params <- parameterEstimates(fit1, standardized = TRUE)
+
+# Extract factor loadings
+factor_loadings <- params[params$op == "=~", "std.all"]
+
+# Extract error variances
+error_variances <- params[params$op == "~~" & params$lhs == params$rhs, "std.all"]
+
+# delete factor variance
+error_variances = error_variances[2:7]
+
+
+## Compute Mac Donalds Omega
+# Compute the sum of factor loadings
+sum_loadings <- sum(factor_loadings)
+
+# Compute the sum of error variances
+sum_error_variances <- sum(error_variances)
+
+
+df_OFA_parameters <- data.frame(
+  item = Impulsivity87,
+  loadings = factor_loadings,
+  error = error_variances
+)
+
+# Compute McDonald's Omega
+omega_imp <- (sum_loadings^2) / ((sum_loadings^2) + sum_error_variances)
+
+# Print Omega
+print(omega_imp)
+```
+The following table showes the factor loadings and error variances for the impulsivity items.
+
+```{r, echo = F}
+#ggtexttable(df_OFA_parameters, rows = NULL, theme = ttheme("light"))
+kable(df_OFA_parameters)
+```
+
+
+
+The following table showes the factor loadings and error variances for the GPH items. 
+
+
+```{r, include = F}
+## GPH
+
+# Extract parameter estimates (factor loadings and error variances)
+params <- parameterEstimates(fit2, standardized = TRUE)
+
+# Extract factor loadings
+factor_loadings <- params[params$op == "=~", "std.all"]
+
+# Extract error variances
+error_variances <- params[params$op == "~~" & params$lhs == params$rhs, "std.all"]
+
+# delete factor variance
+error_variances = error_variances[2:12]
+
+
+## Compute Mac Donalds Omega
+# Compute the sum of factor loadings
+sum_loadings <- sum(factor_loadings)
+
+# Compute the sum of error variances
+sum_error_variances <- sum(error_variances)
+
+
+df_OFA_parameters <- data.frame(
+  item = General.psychological.health87,
+  loadings = factor_loadings,
+  error = error_variances
+)
+
+# Compute McDonald's Omega
+omega_GPH <- (sum_loadings^2) / ((sum_loadings^2) + sum_error_variances)
+
+# Print Omega
+print(omega_GPH)
+```
+
+```{r, echo = F}
+#ggtexttable(df_OFA_parameters, rows = NULL, theme = ttheme("light"))
+kable(df_OFA_parameters)
+```
+
+
+
+
+
+```{r, include = F}
+psych::alpha(cov(df_imp))
+psych::alpha(cov(df_GPH))
+```
+
+
+
+```{r, include = F}
+## IMPULSIVITY
+
+# Compute the standard deviation of the total test scores
+total_scores <- rowSums(df_imp)
+SD_total <- sd(total_scores)
+
+# Compute SEM
+SEM <- SD_total * sqrt(1 - alpha_imp)
+print(SEM)
+
+# Z-value for 90% confidence interval
+Z_value <- 1.645
+
+# Compute the 90% confidence interval 
+CI_lower <- total_scores - Z_value * SEM
+CI_upper <- total_scores + Z_value * SEM
+
+# Combine the confidence interval results into a data frame
+CI_results <- data.frame(
+  Score = total_scores,
+  Lower_CI = CI_lower,
+  Upper_CI = CI_upper
+)
+
+# View the confidence intervals
+print(CI_results)
+
+# Get length of CI
+length_CI = CI_upper - CI_lower
+print(length_CI)
+```
+
+
+
+```{r, include = F}
+## GPH
+
+# Compute the standard deviation of the total test scores
+total_scores <- rowSums(df_GPH)
+SD_total <- sd(total_scores)
+
+# Compute SEM
+SEM <- SD_total * sqrt(1 - alpha_GPH)
+print(SEM)
+
+# Z-value for 90% confidence interval
+Z_value <- 1.645
+
+# Compute the 90% confidence interval 
+CI_lower <- total_scores - Z_value * SEM
+CI_upper <- total_scores + Z_value * SEM
+
+# Combine the confidence interval results into a data frame
+CI_results <- data.frame(
+  Score = mean(total_scores),
+  Lower_CI = CI_lower,
+  Upper_CI = CI_upper
+)
+
+# View the confidence intervals
+print(CI_results)
+
+# Get length of CI
+length_CI = CI_upper - CI_lower
+print(length_CI)
+```
+
+
+
+
+```{r, include = F}
+## IMPULSIVITY
+
+# number of current items and current reliability
+k <- 6
+alpha1 = alpha_imp
+
+
+# Desired reliability
+alpha2 = 0.80
+
+# Spearman-Brown prophecy formula to compute the new number of items
+k_new <- k * (alpha2 * (1 - alpha1)) / (alpha1 * (1 - alpha2))
+
+# Calculate the change in number of items
+item_difference <- k_new - k
+
+# Print the results
+cat("Current number of items:", k, "\n")
+cat("New number of items needed for reliability of 0.80:", round(k_new), "\n")
+cat("Change in number of items:", round(item_difference), "\n")
+```
+
+
+
+
+```{r, include = F}
+## GPH
+
+# number of current items and current reliability
+k <- 11
+alpha1 = alpha_GPH
+
+
+# Desired reliability
+alpha2 = 0.80
+
+# Spearman-Brown prophecy formula to compute the new number of items
+k_new <- k * (alpha2 * (1 - alpha1)) / (alpha1 * (1 - alpha2))
+
+# Calculate the change in number of items
+item_difference <- k_new - k
+
+# Print the results
+cat("Current number of items:", k, "\n")
+cat("New number of items needed for reliability of 0.80:", round(k_new), "\n")
+cat("Change in number of items:", round(item_difference), "\n")
+```
+
+
+```{r, include = F}
+# Compute the observed correlation between the two test scores
+r_observed <- cor(imp_total, GPH_total)
+
+# Print the observed correlation
+cat("Correlation between observed test scores:", r_observed, "\n")
+
+# Compute the true score (disattenuated) correlation
+r_true <- r_observed / sqrt(alpha_imp * alpha_GPH)
+
+# Print the true score correlation
+cat("Disattenuated (true score) correlation:", r_true, "\n")
+```
+
+For general psychological health (GPH), all items load positively on the common factor. MacDonalds Omega was estimated as 0.92, which is significantly higher than Cronbach's Alpha. For the impulsivity items, removing any of the items, lowers the test reliabilty, which means that every single item is contributing to the internal consistency of the test. For the GPH items, removing any of the items does not lower the total reliabilty score either. The standard error of measurement (SEM) for the impulsivity test is 3.69. The length of the 90% CI for each test score is 12.15. Investigating the precision of the test, the standard error of measurement for the GPH test is 1.99. The length of the 90% CI for each test score is 6.55. Investigating the item constellation in both tests, it is assumed that all items are parallel (load equally on the one common factor / latent trait). For impulsivity, the Spearman-Brown prophecy formula with a desired C-G reliability of 0.80 suggests that adding 9 items to the current 6 items would reach the desired reliability, leading to a total test length of 15 items. Hypothetically, an item to add to the impulsivity test could be: "When I feel a desire for action, I am acting on it immediately." For GPH, removing 1 item would lead to the desired reliabilty of 0.80, which is already pretty close to the current C-G reliabity of 0.81. It is difficult to decide to remove an item from the test, because no items are lowering the overall test reliabilty. However, since removing items S329 and S330 do not change alpha, it might be the most reasonable to remove them. The correlation between the observed test scores of the impulsivity and GPH test is 0.06497035. The disattenuated true score correlation between the to tests is 0.09178186.
+
+
+
+## 3.2 Item-Response Analysis
+
+```{r, include = F}
+# fit Graded Response model for both tests
+grm_imp = grm(as.matrix(df_imp))
+grm_gph = grm(as.matrix(df_GPH))
+
+# fit partial credit model for both test
+pcm_imp <- gpcm(as.matrix(df_imp), control = list(optimizer = "nlminb"))
+pcm_gph <- gpcm(df_GPH, control = list(optimizer = "nlminb"))
+```
+
+```{r, include = F}
+# model summaries
+sum_grm_imp = summary(grm_imp)
+sum_grm_gph = summary(grm_gph)
+sum_pcm_imp = summary(pcm_imp)
+sum_pcm_gph = summary(pcm_gph)
+
+#get AIC, BIC and loglik for model fit 
+
+# impulsivity
+cat("impulsivity GRM:", sum_grm_imp$AIC, sum_grm_imp$BIC, sum_grm_imp$logLik, "\n")
+cat("impulsivity PCM:", sum_pcm_imp$AIC, sum_pcm_imp$BIC, sum_pcm_imp$logLik, "\n")
+
+# gph
+cat("GPH GRM:", sum_grm_gph$AIC, sum_grm_gph$BIC, sum_grm_gph$logLik, "\n")
+cat("GPH PCM:", sum_pcm_imp$AIC, sum_pcm_imp$BIC, sum_pcm_imp$logLik)
+```
+
+Because of the ordered-categorical response categories, we need can fit a Graded response model (GRM) and Partial Credit Model (PCM) and see which fits best. For the impulsivity test, the graded respones model has a better model fit based on AIC, BIC and log-likelihood. For the GPH, GRM has a better fit as well. This makes sense as the GRM is the suited or ordered response categories where each item asks respondents to indicate their level of agreement. The discrimination parameter (a) reflects how well an item can differentiate between individuals with different levels of the latent trait. Higher values indicate better discrimination. The difficulty (threshold) parameter (b) indicates the point on the latent trait continuum where a respondent has a 50% chance of endorsing a particular response category. For polytomous models (like GRM and PCM), there will be multiple threshold parameters, one for each transition between the response categories.
+
+The Graded Response Model (GRM) had the best fit to the items and therefore we will stick to this model for the paramter analysis. For the impulsivity test, items S255, S264, S279, and S292 rather show moderate values according to common conventions, which means that this item moderately differentiates between individuals with low and high values of the latent trait impulsivity (see also the following table. Item S269 shows low differentiabilty, whereas Item S274 shows high differentiability (slopes of the item characteristic curves). For the item difficulties, i.e. thresholds, the items show considerably differences among each other. Ranging across all category thresholds, item S269 ("I feel comfortable in situations that need quick action") shows a high range over values of the latent trait impulsivity and big steps between the thresholds, indicating that it captures a lot of the variation in impulsivity. When comparing the other item difficulty ranges, they show much similarity. However the difficulty for the first threshold of items S255, S274, and S292 indicate that they do not adequately capture low values on impulsivity. Furthermore, items S274, S279, and S292 seem to not capture very high impulsivity values well (also see the following table).
+
+```{r, include = F}
+sum_grm_imp
+sum_grm_gph
+sum_pcm_imp
+sum_pcm_gph
+```
+
+
+
+
+```{r, echo = F}
+param_grm_imp = coef(grm_imp)
+colnames(param_grm_imp) = c("Thres1", "Thres2", "Thres3", "Thres4", "Thres5", "Thres6", "Discr")
+kable(param_grm_imp, caption = "Parameters GRM impulsivity")
+```
+
+For the General psychological health (GPH) items, Items S329, S330 showed low differentiability, whereas item S335 ("Did you feel unhappy and dejected lately?") showed the highest differentiability, followed by items S332, and S336 with high discriminative properties. Items S327, S328, S331, and S333 showed moderate differentiability. Items S337 and S338 are on the edge of conventionally high differentiablity (see also the following table). For the difficulty parameters, items S327, S329, and S330 capture a wide range of the latent trait of general psychological health. Especially the aforementioned items seem to catpure extremely high and low values of GPH.
+
+```{r, echo = F}
+param_grm_gph = coef(grm_gph)
+colnames(param_grm_gph) = c("Thres1", "Thres2", "Thres3", "Discr")
+
+#plot
+kable(param_grm_gph, caption = "Parameters PCM General Psychological Health")
+```
+
+In the following table, the Item Information Curves and their discrimination and difficulty parameters for the 6 impulsivity items ("S255","S264", "S269", "S274", "S279", "S292") can also be inspected visually. 
+
+```{r, echo = F}
+plot(grm_imp, ask=F, type = "IIC", items = 1:6, ylim = c(0, 1),
+  main = "IICs for imulsivity items")
+plot(grm_gph, ask=F, type = "IIC", items = 1:6, ylim = c(0, 1),
+  main = "IICs for GPH items")
+```
+
+
+
+The test information curve for the impulsivity test suggests that the items are most
+informative for distinguishing persons with impulsivity levels roughly below and above
+-2 and +2 SDs above the mean. This suggests that the impulsivity items will perform
+well in distinguishing persons with low and high impulsivity in this range. From -2 to -4 and from +2 to +4 SDs from the mean, the test information significantly drops. Crucially, however, the test information curve peaks at 2, which indicates rather poor discriminative power for the impulsivity test generally.
+
+
+
+```{r, echo = F}
+plot(grm_imp, ask=F, items = 0, type = "IIC",
+    main = "Test information for imulsivity (GRM)")
+
+```
+
+For the general psychological health (GPH) items, the items show poor informity for low values of the latent trait. With increases in the latent trait, the test information function (TIF) increases proportionally. At the mean value of the estimated latent trait, the item information curve reaches a high value of informaty (TIF ~ 5). The TIF stays high until it drops again at +2 SDs from the mean.
+
+
+```{r, echo = F}
+plot(grm_gph, ask=F, items = 0, type = "IIC",
+    main = "Test information for GPH (GRM)")
+
+```
+
+
+
+```{r, include = F}
+library("poLCA")
+values <- df_imp
+colnames(values) <- paste("I", 1:6, sep = "")
+form <- cbind(I1, I2, I3, I4, I5, I6) ~ 1 # model formula
+fitIndep <- poLCA(form, values, nclass=1)
+-2*(fitIndep$llik - grm_imp$log.Lik)
+```
+```{r, include = F}
+# Get the total number of parameters in the model
+num_params <- length(coef(grm_imp))  # Total number of parameters
+
+# Get the total number of observations (cases * items)
+num_obs <- nrow(df_imp) * ncol(df_imp)  # Number of respondents * number of items
+
+# Calculate the degrees of freedom
+degf <- num_obs - num_params
+
+# Output the degrees of freedom
+cat("Degrees of Freedom (df):", degf, "\n")
+```
+
+```{r, include = F}
+# Let's assume fitIndep and grm_imp are the fitted models
+# Log-likelihood of independent model (fitIndep)
+llik_indep <- fitIndep$llik  # Replace with actual log-likelihood for independent model
+
+# Log-likelihood of GRM model (grm_imp)
+llik_grm <- grm_imp$log.Lik  # Replace with actual log-likelihood for GRM model
+
+# Compute deviance statistic
+deviance_statistic <- -2 * (llik_indep - llik_grm)
+
+# Compute degrees of freedom (difference in number of parameters)
+# Replace num_params_grm and num_params_indep with the actual parameter counts
+num_params_grm <- length(coef(grm_imp))  # Number of parameters in GRM
+num_params_indep <- 36  # Number of parameters in independent model
+df <- num_params_grm - num_params_indep
+
+# Compute p-value
+p_value <- 1 - pchisq(deviance_statistic, df)
+
+# Output the results
+cat("Deviance Statistic:", deviance_statistic, "\n")
+cat("Difference Degrees of Freedom:", df, "\n")
+cat("P-value:", p_value, "\n")
+```
+
+
+
+When comparing the fitted GRM model with dependent responses due to the estimated latent trait (item responses), the independence model has higher AIC and BIC values (AIC = 36844.44) than the Graded Response Model (35842.98). The GRM has 42 degrees of freedom, the independent model has 36 estimated degrees of freedom. The LR / deviance statistic is 1013.461. The chi-squared LR statistic is highly significant, indicating that independence
+must be rejected in favor of dependence of the item reponses, which may be the
+result of an underlying latent variable.
+
+
+
+```{r, include = F}
+set.seed(4036018)
+
+df_imp_bias = cbind(df_imp, df_age, df_studydelay, df_gender)
+names(df_imp_bias)[names(df_imp_bias) == "sapply(data_all[, Gender], as.numeric)"] <- "gender"
+
+
+# for gender
+group = df_imp_bias$gender
+imp_dif_gender <- lordif(df_imp_bias[ ,1:6], group = group, model = "GRM")
+imp_dif_gender
+#plot(imp_dif_gender, labels = c("Male", "Female"))
+
+# for age
+df_imp_bias$age_group = ifelse(data_all$M37 > median(data_all$M37, na.rm = T), "old", "young")
+group_age = df_imp_bias$age_group
+imp_dif_age <- lordif(as.matrix(df_imp_bias[ ,1:6]), group = group_age, model = "GRM")
+imp_dif_age
+#plot(imp_dif_age, labels = c("old", "young"))
+
+# for study delay
+df_imp_bias$delay_group = ifelse(data_all$M232 > median(data_all$M232, na.rm = T), "shorter", "longer")
+group_delay = df_imp_bias$delay_group
+imp_dif_delay <- lordif(as.matrix(df_imp_bias[ ,1:6]), group = group_delay, model = "GRM")
+imp_dif_delay
+#plot(imp_dif_delay, labels = c("shorter", "longer"))
+```
+
+To check if any items of the two tests are biased, we performed Differential Item Functioning (DIF) testing. For the DIF testing, the item level Eta-squared test compares three models: A model where there is only a main effect of ability (no DIF), a model where there is a main effect of ability and a main effect of subgroup (uniform DIF), and a model where there is a main effect of ability, a main effect
+of subgroup, and an interaction effect of subgroup (non-uniform DIF). Items that pass the significance threshold. 
+
+When investigating the impulsivity test, for gender, items 1, 3, and 5 were flagged for DIF at an alpha threshold of 0.01. Item 1, 3 and 5 show both uniform and non-uniform DIF, which is a strong indicator for biased items. Gender seems to interact with the probabilty of giving positive answers to the items, for participants with the same value on the latent trait impulsivity. For the two age groups (younger and older participants), items 1, 3, and 4 show uniform DF, but no non-uniform DF, indicating a main effect of the latent trait and a main effect of age on the probability of responding positive to this item. This means that the difference in item performance between age groups is consistent across all levels of impulsivity. Looking at study delay, no items showed uniform or non-uniform DIF, indicating that the items do not show bias between participants' duration of study.
+
+
+```{r, include = F}
+# GPH
+set.seed(4036018)
+
+df_gph_bias = cbind(df_GPH, df_age, df_studydelay, df_gender)
+names(df_gph_bias)[names(df_gph_bias) == "sapply(data_all[, Gender], as.numeric)"] <- "gender"
+
+
+# for gender
+group = df_gph_bias$gender
+gph_dif_gender <- lordif(df_gph_bias[ ,1:11], group = group, model = "GRM")
+gph_dif_gender
+#plot(imp_dif_gender, labels = c("Male", "Female"))
+
+# for age
+df_gph_bias$age_group = ifelse(data_all$M37 > median(data_all$M37, na.rm = T), "old", "young")
+group_age = df_gph_bias$age_group
+gph_dif_age <- lordif(as.matrix(df_gph_bias[ ,1:11]), group = group_age, model = "GRM")
+gph_dif_age
+#plot(imp_dif_age, labels = c("old", "young"))
+
+# for study delay
+df_gph_bias$delay_group = ifelse(data_all$M232 > median(data_all$M232, na.rm = T), "shorter", "longer")
+group_delay = df_gph_bias$delay_group
+gph_dif_delay <- lordif(as.matrix(df_gph_bias[ ,1:11]), group = group_delay, model = "GRM")
+gph_dif_delay
+#plot(imp_dif_delay, labels = c("shorter", "longer"))
+```
+
+When investigating the general psychological health (GPH) test, for gender, items 5, 8, 11 were flagged for DIF at an alpha threshold of 0.01. Items 5 and 8 show both uniform and non-uniform DIF, indicating an interactive effect of gender and the probability to give a positive response to GPH for different levels of the latent trait of GPH. Item 11 shows only uniform DIF, indicating that gender has an effect of the probability to answer positively independent of the value of the latent trait of GPH. Moreover, when looking at the subgroups of older and younger people (age), items 4, 7, and 10 were flagged for DIF. Item 5 showed non-uniform DIF, indicating an interactive effect of age on the probabilty to respond positively on items of GPH for different values of the latent trait of GPH. Items 7 and 10 only showed uniform DIF, indicating a main effect of age on the probability of answer positively, independent of the values of the latent trait. Lastly, when comparing participants with shorter and longer study delays, no DIF was detected, indicating no bias in the probabilty of answering positively for the items in this subgroup.
+
+
+
+# 4 Discussion 
+
+The results of this study provide insights into the psychometric properties of both tests used to measure impulsivity and general psychological health (GPH) The GPH test demonstrated acceptable levels of internal consistency, as indicated by Cronbach’s alpha and McDonald’s omega. The impulsivity test, however, showed low internal consistency, indicating that items within the test do not reliably measure the same underlying construct. The test items are not highly correlated with each other, indicating that they may be capturing different constructs, rather than consistently assessing the intended trait of impulsivity. Narrow confidence intervals generated through bootstrapping suggest that the tests provide stable measurements across different samples. The one-factor analysis supported the assumption that a single latent factor underlies both tests, reinforcing the notion that impulsivity and psychological health can each be conceptualized as unidimensional constructs. 
+
+However, the Item Response Theory (IRT) analysis, both including the Graded Response Model (GRM) and the Partial Credit Model (PCM), revealed variability in item discrimination and difficulty, providing more nuanced information about how well individual items measure different levels of these traits. Items with high discrimination parameters were particularly effective in distinguishing between individuals with differing levels of the underlying trait, while items with low discrimination may benefit from revision or removal in future test iterations.
+
+The Differential Item Functioning (DIF) analysis indicated that certain items displayed bias with respect to gender and study delay. The presence of uniform DIF suggests that some items may not function equivalently across groups, potentially skewing test results. These findings highlight the importance of ensuring that items are equally applicable across diverse populations, particularly when using these tests in both research and clinical contexts. Future test revisions should consider revising or replacing biased items to enhance fairness and validity.
+
+Finally, considering practical implications, an IRT model is preferred a the one-factor model in research settings, although the one-factor model has some advantages like simplicity and good interpretability while still modelling some complex effects in the relationship of the items to the latent trait. The main reason to prefer IRT over the one-factor model ot sum scores is that it is able to model the most information about the items and their relationship to the latent trait. For example IRT models like the 2-PL or GRM model are able to model item-level information such as item difficulty and discrimination. It is also able to show how informative each item is across different values of the latent trait, and add these item informations up to give the total information contained in the test. The second reason for a superiority of the IRT-models is that they can handle biased items and measurement error better than one-factor models or sumscores. The one-factor model can also handle measurement error, but not for different values of the latent trait. It assumes that the measurement error is constant across all levels of the latent traits. Each item has a single error variance that is assumed to be equal for all individuals. IRT models, however, can model measurement errors for different values of the latent trait, and even give detect if certain items function differently for subgroups through Differential Item functioning (DIF) analysis.
+
+In a clinical setting, when reporting the results to patients and decision makers, one might refer to the most simple and easy-to-work with model that allows for quick and easy interpretability. Therefore, one might refer to sumscores in this settings, because they are straightforward and fast to compute, and they are able to provide decision makers and patients with accessible and understandable information to base decisions upon. IRT models would be too complex and hard to comprehend in a short period of time to work appropriately with. Taken together, both computability and interpretability favor sumscores over more complex IRT or one-factor models.
+
+
+
+
+

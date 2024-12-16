@@ -1,0 +1,153 @@
+---
+title: "Bayesian II Assignment 02"
+author: "Colin Yip & Joshua Damm"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(brms)
+library(faraway)
+library(tidyverse) # Data manipulation
+library(forcats) # Factor manipulations
+library(hrbrthemes) # Plotting themes
+library(ggplot2) # Plotting
+library(ggdist) # Uncertainty visualisation
+library(viridis) # Colour schemes
+library(latex2exp) # LaTeX labels
+library(brms) # Bayesian fitting
+library(bayesplot) # ggplot2-based package to plot MCMC output
+library(tidybayes) # Manipulate and visualise posterior draws
+library(emmeans) # Marginal means etc
+library(performance) # Some further helpers
+```
+
+
+```{r}
+data(penicillin, package="faraway")
+summary(penicillin)
+```
+
+```{r}
+penicillin |>
+  group_by(treat) |>
+  summarise(treat_mu = mean(yield),
+            treat_sigma = sd(yield))
+```
+
+```{r}
+penicillin |>
+  group_by(blend) |>
+  summarise(blend_mu = mean(yield),
+            blend_sigma = sd(yield))
+```
+
+```{r}
+ggplot(penicillin, aes(y = yield, x = treat, shape = blend, color = treat)) +
+  geom_point() +
+  xlab("Treatment")
+
+```
+
+```{r}
+ggplot(penicillin, aes(y = yield, x = blend, shape = treat, color = treat)) +
+  geom_point()
+
+```
+
+We want to test how penicillin can be produced by the raw material of corn steep liquor. The raw material, corn steep
+liquor, is quite variable and can only be made in blends sufficient for four runs. A randomized complete block design is suggested.
+
+Visually and based on descriptive statistics there are small differences in yield between the treatments, but the spread of the data is also rather large. When looking at the blends, there is considerably more difference in yield between the different blends, and the spread is also smaller.  
+
+
+
+
+
+## Fit frequentist ANOVA with treatment and block as predictors as a first glimpse
+
+```{r}
+op <- options(contrasts=c("contr.sum", "contr.poly"))
+lmod <- aov(yield ~ blend + treat, penicillin)
+summary(lmod)
+```
+```{r}
+coef(lmod)
+```
+
+Frequentists ANOVA shows that there is no difference between the treatment groups, but there are significant differences in yield between the respective blends (blocks). However, in a frequentist ANOVA, we assume that the variance due to blends is constant across all levels of the treatments. A hierarchical model treats the block-to-block variability as a parameter to estimate. This is important because blends are inherently different, but that variability needs to be accounted for in the model.
+
+Therefore, we want to fit a bayesian mixed-effects model where we have fixed treatment effects and random blend (block) effects. We choose to set blends as a random effect, as their composition depends on the quality of the raw material, which can be seen as samples drawn from a notional population of blends. Prior domain knowledge suggest that there are no interactions between the treatment and the blends, which is why we do not add an interaction term in our model.
+
+```{r}
+## Model formula
+model_formula <- bf(yield ~ 1 + (1 | blend) + treat) # random intercepts for blend, treatment is fixed, we do not assume interactions
+
+# get default priors
+get_prior(formula =  model_formula, , data = penicillin)
+
+
+# set priors manually? We do not have std_x, as we dont have a continuous covariate
+mu_y <- mean(penicillin$yield) # mean yield
+std_y <- sd(penicillin$yield) # Std yield
+
+mu_y # prior for intercept
+std_y # prior for sigma_E
+
+priors <- c(set_prior("normal(0, 10)", class = "b", coef = "treat1"), # Prior for the fixed effects (treatment)
+            set_prior("normal(0, 10)", class = "b", coef = "treat2"),
+            set_prior("normal(0, 10)", class = "b", coef = "treat3"),
+                 set_prior("normal(86, 10)", class = "Intercept"), # Prior for the intercept (alpha)
+                 set_prior("student_t(3, 0, 5.9)", # prior for between-group variance(sigma_mu)
+                           class = "sd",
+                           group = "blend",
+                           lb = 0),
+                 set_prior("exponential(1.0 / 5.43)", class = "sigma", lb = 0) # Prior for the random effect (blends) / within-group variance (sigma_E), centered on sample standard deviation
+                 )
+
+bayesian_LMM <- brm(formula = model_formula,
+                      data = penicillin,
+                      prior = priors,
+                      seed = 12345678,
+                      control = list(adapt_delta = 0.9),
+                      cores = 4
+                      )
+
+## Summary
+
+summary(bayesian_LMM)
+
+```
+
+```{r}
+# Look at convergence chains here to ensure that a stable solution has been found
+mcmc_trace(bayesian_LMM)
+```
+
+
+```{r}
+mcmc_acf(bayesian_LMM)
+```
+
+
+```{r}
+regression_R2 <- bayes_R2(bayesian_LMM, summary = FALSE)
+regression_R2_df <- data.frame(R2 = regression_R2)
+
+regression_R2_df %>%
+  ggplot(aes(x = R2)) +
+  stat_halfeye() + 
+  labs(title = "R^2 of Bayesian Estimate for treatment Effect on yield",
+       y = "R^2")
+```
+
+```{r}
+# Between vs within variation
+icc(bayesian_LMM, by_group = TRUE)
+
+# Some other performance metrics
+model_performance(bayesian_LMM, metrics = "common", verbose = TRUE)
+```
+

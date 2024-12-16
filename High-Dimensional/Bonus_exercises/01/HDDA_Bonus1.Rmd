@@ -1,0 +1,49 @@
+---
+title: "HDDA_Bonus1"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(MASS)
+```
+
+```{r}
+load("assignment1_grp28.Rdata")
+```
+
+```{r}
+# Fit ridge regression
+lambda = 28/10
+
+# get ridge estimator
+ßr = solve(t(X) %*% X + lambda * diag(59)) %*% t(X) %*% Y
+
+#get answer 1 
+answer1 = round(ßr[28], 4)
+```
+
+
+```{r}
+# expected value
+bias = ßr - betas
+
+# get projection matrix
+Px = t(X) %*% solve(X %*% t(X)) %*% X
+
+# decompose bias into penalization and high dimensionality
+
+# bias
+db = Px %*% (ßr - Px %*% betas)
+  
+# high - dimensionality
+dh = (Px - diag(59)) %*% betas
+
+answer2 = round(dh[28], 4)
+```
+
