@@ -1,0 +1,394 @@
+---
+title: "ASL Inidividual Assignment 01"
+author: "Joshua Damm"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mlbench)
+library(gplite)
+library(ggplot2)
+library(dplyr)
+library("MASS")
+library("xgboost")
+library("caret")
+source("https://raw.githubusercontent.com/karchjd/share_files/master/functions_bayesian_regression.R")
+```
+
+```{r, include=FALSE}
+data = readRDS(file = "Data_Assignment1_ASL.Rds")
+```
+
+## Data Preparation
+
+```{r, include=FALSE}
+## Prepare the data
+set.seed(4036018)
+sample_size <- floor(0.75 * nrow(data))
+
+# Generate random sample indices
+train_indices <- sample(seq_len(nrow(data)), size = sample_size)
+
+# Split the data
+train_data <- data[train_indices, ]
+test_data <- data[-train_indices, ]
+
+# Selecting predictors and target variable
+target <- "Test_Pct04"
+predictors <- names(data) [names(data) != target]
+
+
+# training data with selected predictors
+x_train <- as.matrix(train_data[, predictors])
+y_train <- as.matrix(train_data[, target])
+
+# test data with selected predictors
+x_test <- as.matrix(test_data[, predictors])
+y_test <- test_data[, target]
+```
+
+The data were split into 75% training and 25% test data. Later, I am asked to compare the performance of the XGBoost ensemble with the Gaussian Process Regression (GPR). Since we are asked to only consider numerical features in the GPR, I am also only going to look at numerical features in the XGBoost.
+
+```{r, include=FALSE}
+# use only numeric columns
+train_data_num = train_data[sapply(train_data, is.numeric)]
+test_data_num = test_data[sapply(test_data, is.numeric)]
+
+# only consider numeric predictors
+predictors_num <- names(train_data_num) [names(train_data_num) != target]
+
+# training data with selected predictors
+x_train_num <- as.matrix(train_data_num[, predictors_num])
+y_train_num <- as.matrix(train_data_num[, target])
+
+
+
+# test data with selected predictors
+x_test_num <- as.matrix(test_data_num[, predictors_num])
+y_test_num <- test_data_num[, target]
+
+# standardize 
+x_train_scaled <- scale(x_train_num)  # Center and scale training data
+x_test_scaled = scale(x_test_num)
+```
+
+```{r, include=FALSE}
+# ensure target is numeric
+y_train = as.numeric(y_train)
+```
+
+# Question 1
+
+
+```{r, include=FALSE}
+## Set up 10-fold cross-validation
+cv_control <- trainControl(
+  method = "cv",    # Cross-validation
+  number = 10,      # Number of folds
+  verboseIter = F,  # Print progress
+  allowParallel = TRUE  # Allow parallel computation
+)
+```
+
+
+```{r, include=FALSE}
+## Random forest
+# Define the hyperparameter grid
+rf_grid <- expand.grid(
+  mtry = c(1, 5, 10 , 11, 12, 15),               # Number of predictors to consider at each split
+  splitrule = "variance",          # Splitting rule for regression (default for ranger)
+  min.node.size = 10 # Minimum observations per leaf node
+)
+```
+
+```{r, include=FALSE}
+rf_model <- train(
+  x = x_train_num,
+  y = y_train,
+  method = "ranger",
+  tuneGrid = rf_grid,
+  trControl = cv_control,
+  metric = "RMSE",
+  num.trees = 1000  # Specify the number of trees
+)
+
+```
+
+```{r, include=FALSE}
+print(rf_model)
+
+```
+
+
+
+```{r, include=FALSE}
+## gradient boosting
+grid_GBM = expand.grid(
+shrinkage = c(.1, .01, .001),
+n.trees = c(100, 1000, 2000, 2500), # number of sequential trees / number of boosting iterations
+interaction.depth = 1:4,
+n.minobsinnode = 10)
+```
+
+```{r, include=FALSE}
+gbm_Fit <- train(x = x_train_num, y = y_train, tuneGrid = grid_GBM,
+distribution = "gaussian", method = "gbm",
+trControl = cv_control,
+metric = "RMSE", maximize = FALSE) 
+##
+```
+
+```{r, include=FALSE}
+GBM_bestTune = gbm_Fit$bestTune
+GBM_bestTune
+```
+
+
+```{r, include=FALSE}
+## Extreme gradient boosting
+
+## Use cross-validation to optimize hyperparameters for XGBoost
+
+# set up the cross-validated hyper-parameter search
+grid_xgb =expand.grid(
+  nrounds = c(100, 1000, 2000, 2500),## number of boosting iterations
+  max_depth =c(1:4),## maximum tree depth
+  eta =c(0.1, 0.01, 0.001),## learning rate
+  gamma = 1,## determines tree complexity (max_depth also does this)
+  colsample_bytree = 1,## values < 1 (and > 0) yield RF-style column sampling7
+  min_child_weight = 1,## determines tree complexity (max_depth also does this)
+  subsample = 0.632## fixed
+  )
+```
+
+```{r, include=FALSE}
+xgb_fit = caret::train(x = x_train_num, y = y_train, verbosity = 0,
+                 tuneGrid = grid_xgb, method = "xgbTree",
+                 trControl = cv_control)
+
+
+```
+
+
+```{r, include=FALSE}
+## select optimal hyperparameters
+xgb_fit$bestTune
+```
+
+
+
+```{r, include=FALSE}
+## Plot the respective fits
+plot(rf_model)
+plot(gbm_Fit)
+plot(xgb_fit)
+```
+
+For the random forest (RF) model without gradient boosting, the number of trees could not be specified in the initial parameter grid. I tried out different values yielding similar RMSE values as random forests rely on a large ensemble of decision trees, and the number of trees determines how robust the predictions are. Therefore, tuning this parameter is often less critical. The performance of the RF model (lower cross-validated RMSE) initially increased with higher numbers of included predictor, reached its best performance at 10 predictors used for splitting. However, 5 predictors yielded a comparable RMSE and should therefore be preferred due to parsimony. After that, the performance went down again, suggesting overfitting for higher numbers of predictors.
+
+For the gradient boosted machine (GBM) model, The hyperparameters interact with each other so that clear separable trends are less clear to extract. For shrinkage parameters (learning rates) of 0.001 the number of boosting iterations lead to increased performance. For a shrinkage of 0.01, the RMSE goes up again after 1000 iterations. For a shrinkage of 0.1 the RMSE is increasing proportionally with the number of boosting iterations, suggesting overfitting. There is no clear trend in the amount of interaction depth.
+
+For the XGBoost, the interaction depth of the threes also does not play a crucial role in cross-validated model performance. The number of boosting iterations is generally leading to a better model performance for the small shrinkage parameter (slow learning rate). For the moderate learning rate of 0.01 however, the performance slightly decreases again after a number of 1000 boosting iterations, suggesting overfitting for higher boosting iterations. The learning rate of 0.1 is too high and the model overfits on the training data.
+
+# Question 2
+
+```{r, include=FALSE}
+# ensure that test target is numeric
+y_test_num = as.numeric(y_test_num)
+```
+
+```{r, include=FALSE}
+# use optimal parameters to fit XGBoost model on the training set
+xgb_final <- xgboost(data = x_train_num, label = y_train, nrounds = 1000, max_depth = 1,
+eta = 0.01, gamma = 1, colsample_bytree = 1,min_child_weight = 1, subsample = 0.632, verbose = FALSE)
+```
+
+```{r, include=FALSE}
+# make predictions based on test data
+predictions <- predict(xgb_final, newdata = x_test_num)
+```
+
+```{r, include=FALSE}
+# Compute RMSE
+rmse <- sqrt(mean((y_test_num - predictions)^2))
+print(rmse)
+
+```
+
+After plugging in the optimal hyperparameters in the XGBoost model we make predictions based on the test data. After that we compute the Root Mean Squared Error (RMSE) between our predictions and the target observations on the test data. The RMSE is appr. 22.
+
+# Question 3
+
+```{r, include=FALSE}
+# extract variable importances
+xgb_imp <- xgb.importance(model = xgb_final)
+head(xgb_imp)
+```
+
+I chose to pick gain as my importance measure. It measures the average improvement in the model's accuracy based on the loss function brought by a feature when it is used for splitting. This measure focuses on the quality of the splits and not just their quantity (frequency). Using gain also brings limitations like its sensitivity to outliers and noise which sometimes leads to assigning a high importance to features that are only predictive for a small subset of the data. Therefore, other importance measures should also be included in the final decision based on context.
+
+# Question 4
+
+```{r, include=FALSE}
+par(mar = c(8, 3, 2, 2)) # Adjust margins for labels
+barplot(
+  xgb_imp[, 2]$Gain, # Ensure the height values are numeric
+  names.arg = xgb_imp$Feature, # Use the feature names as labels
+  horiz = FALSE,
+  las = 2,
+  cex.names = 0.7, # Adjust label size
+  ylab = "Gain", # Add y-axis label
+  col = rainbow(20)
+)
+
+```
+
+Based on gain, AgeAFQT is the most relevevant indicator /obvious driver of predictive performance, followed by a more nuanced predictive relevance by PermInc, HOMECog_Pct88, and DOB_Yr_Child.
+
+# Question 5
+
+## 5a
+
+```{r, include=FALSE}
+# Define training function using gp_init and gp_optim
+train_gp <- function(kernel, x, y) {
+gp <- gp_init(cfs = kernel)
+gp <- gp_optim(gp, x, y, verbose = FALSE, restarts = 10, tol_param = 0.01)
+return(gp)
+}
+
+# Define kernels
+kernel_linear <- cf_lin(normalize = T)
+kernel_se <- cf_sexp(normalize = T)
+kernel_nn <- cf_nn(normalize = T)
+
+# Training models
+linear_kernel <- train_gp(kernel_linear, x_train_num, y_train_num)
+se_kernel<- train_gp(kernel_se, x_train_num, y_train_num)
+nn_kernel = train_gp(kernel_nn, x_train_num, y_train_num)
+```
+
+```{r, include=FALSE}
+# Get log model evidence (negative log marginal likelihood of the models) 
+gp_energy(linear_kernel, include_prior = TRUE)
+gp_energy(se_kernel, include_prior = TRUE)
+gp_energy(nn_kernel, include_prior = TRUE)
+```
+
+I standardized predictor variables (e.g., subtracting the mean and dividing by the standard deviation) while fitting the GPR as recommended. It ensures that the kernel hyperparameters (e.g., length scales) are comparable across dimensions, improving numerical stability and optimization during training. Unfortunately, for the linear and neural network kernel, not all model parameters reached convergence also with higher repeats (up to 25) and different tolerance values. The neural network kernel shows the best model evidence (lowest negative log marginal likelihood) and shows therefore the best fit to the training data.
+
+## 5b
+
+One advantage of using the bayesian approach of selecting a model via model evidence vs. the more frequentist approach of cross-validation (CV) is that it is more computationally efficient. The evidence of the model is the marginal likelihood, which computes the likelihood of the data given the model in a single evaluation by integrating over all possible parameter values and considering the whole dataset. In CV, the data is being split many times to evaluate the optimal parameters by considering multiple subsets of the data, which is more computationally costly, especially for more complex models like tree ensembles and for large complex data sets.
+
+A second advantage could be the robustness of model evidence selection to overfitting. The marginal likelihood (model evidence) integrates over all possible model parameters, including the likelihood of the data given the model and prior information about the parameters (potentially inferred from the data), therefore balancing model fit and complexity. This also reduces the risk of overfitting through penalizing model parameters constellations that are overly complex. CV, on the other hand, optimizes the parameters based on data splitting, leading to variability in the model performance criterion (e.g. RMSE as the loss function) based on the splits that were run. In tree ensembles, for instance, greedy algorithms make splits on their influence on the reduction of the loss function, which can lead to overfitting based on noise in the data, or only considering highly influetial variables in earlier splits in a greedy fashion, as opposed to considering all possible ways of splitting and evaluating the data.
+
+# Question 6
+
+## 6a
+
+```{r, include=FALSE}
+#Get predictions on the test set for best kernel and get MSE
+
+# Generate prediction for nn kernel as it is the best
+nn_pred = gp_pred(nn_kernel, x_test_num, var = TRUE)
+
+# get MSE for nn kernel
+# performance functions from last week:
+compute_mse <- function(predictive_means, true_values) {
+mean((predictive_means - true_values)^2)
+}
+
+MSE_nn = compute_mse(nn_pred$mean, y_test)
+
+paste("MSE neural network kernel:", MSE_nn)
+```
+
+I used the best performing neural network kernel to make predictions based on the test set. The MSE was appr. 497.90.
+
+## 6b
+
+
+The latent predictive distribution includes the "true" noiseless values of the target variable at given input locations. It represents the model's belief about the true, underlying relationship of the predictors and the response. The observed predictive distribution, however, represents the actual distribution of observed values given the predictor values.
+
+```{r, include=FALSE}
+## Get predictive distribution
+
+## Transform latent to observed predictive distribution
+
+# get noise variance in the likelihood function (beta inverse) / estimate variance of the residuals
+
+
+# Compute residuals based on predicted values
+residuals <- y_test - nn_pred$mean
+
+# Estimate noise variance (beta inverse)
+noise_variance <- mean(residuals^2)  # Variance of residuals = MSE
+beta <- 1 / noise_variance           # Precision
+print(paste("Estimated noise variance (beta^-1):", noise_variance))
+print(paste("Estimated precision (beta):", beta))
+```
+
+```{r, include=FALSE}
+# Add noise variance to posterior variance
+nn_obs_pred = list(
+  mean = nn_pred$mean,
+  var = nn_pred$var + noise_variance
+)
+```
+
+```{r, include=FALSE}
+## Obtain proportions of test data points within the 95% Credible Interval of the predictive mean of the observed predictive distribution
+
+observed_std <- sqrt(nn_obs_pred$var)
+
+# Calculate the lower and upper bounds of the 95% credible interval
+lower_bound <- nn_obs_pred$mean - 1.96 * observed_std
+upper_bound <- nn_obs_pred$mean + 1.96 * observed_std
+
+# Check how many test points fall within the interval
+within_interval <- (y_test >= lower_bound) & (y_test <= upper_bound)
+
+# Proportion of test points within the interval
+proportion_within <- mean(within_interval)
+print(proportion_within)
+```
+
+-   posterior variance captures the model's uncertainty in the latent predictions, derived from the posterior covariance matrix
+-   After adding the noise variance to the posterior variance we obtained the variance of the observed posterior predictive distribution
+-   We construct the 95% CI for the predictive mean of the observed predictive distribution
+-   **Approximately 97.4% of the test data points fall within 95% probability mass of the observed predictive distribution**
+
+# Question 7
+
+The first model is more complex because of its kernel (covariance function). Given that both models share the same noise variance $\beta^{-1}$ of 1, only the models' complexity is determined by their respective kernels. The first kernel implies that for two arbitrary inputs the covariance is scaled by a factor of 10, whereas the covariance is only scaled by a factor of two for the second kernel. A larger kernel scaling factor allows for more flexibility when fitting the data, whereas a smaller scaling factor corresponds to a smaller prior variance for the covariance function, which makes the model fit less flexible, i.e. more constrained. The first model shows therefore higher flexibility, but also increased risk of overfitting. On the other hand, the higher flexibilty also improves the capacity to capture more complex relationships in the data. The second model shows less flexibility and might therefore generalize better to noisy data with the price of a risk for underfitting.
+
+# Question 8
+
+## 8a
+
+```{r, include=FALSE}
+rmse_nn = sqrt(MSE_nn)
+rmse_nn
+
+rmse_xgb = rmse
+rmse_xgb
+```
+
+The XGBoost model shows a better predictive performance with an RMSE of appr. 22.00  vs. a RMSE of appr. 22.31  for the GPR model.
+
+## 8b
+
+**Two advantages of XGBoost over GPR**
+
+1)  XGBoost is omptimized for large (high-dimensional) data sets by using efficient memory usage and parallelization. GPR scales poorly with increasing number of data points due to the inversion of increasingly large covariance matrices in more complex kernels (like the squared exponential).
+
+2)  Due to its tree-based structure XGBoost is able to deal with complex non-linear relationships and interaction in the data well. It is therefore also well suitable for heterogenous data structures with potential missing values. GPR, however, requires careful kernel selection to tune the model to complex data structures and convergence issues can occur frequently, especially with larger and more complex data sets. We saw the convergence issues in this assignment as well, even though we only selected numeric predictor variables, as for categorical predictors, different kernel functions would have had to be selected.
+
+**Two advantages of GPR over XGBoost**
+
+1)  GPR provides a probabilistic framework by including uncertainty information, e.g. in the form of credible intervals in the predictive distribution. XGBoost does not include this.
+
+2)  GPR's reliance on kernel enables more model interpretability than XGBoost. One can explicitely choose to model a relationship in the data (linear, periodic, an arbitrarily complex smooth function) and investigate the model fit. This helps to come closer to understanding the data generating process. XGBoost does not have a similar feature and relies on post-hoc analyses like feature importances.
